@@ -11,7 +11,7 @@ using namespace platform::d3d9;
 VulkanDisplay::~VulkanDisplay(){if(context_){try{context_->finish();}catch(...){}images_.clear();output_.reset();}}
 bool VulkanDisplay::open(unsigned w,unsigned h,std::string& error){
     try{
-#ifdef OR2_PS5_PAYLOAD
+#if defined(OR2_PS5_PAYLOAD) || defined(OR2_ANDROID)
         constexpr bool native=true;
 #else
         constexpr bool native=false;

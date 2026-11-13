@@ -1,7 +1,9 @@
 #include "platform/music_stream.hpp"
 #include <algorithm>
 #include <cstring>
-#if defined(OR2_HAVE_VORBIS)
+#if defined(OR2_ANDROID)
+#include "stb_vorbis.h"
+#elif defined(OR2_HAVE_VORBIS)
 #include <vorbis/vorbisfile.h>
 #endif
 
@@ -38,7 +40,9 @@ struct MusicStream::Impl {
     std::vector<std::int16_t> pending;   // decoded source frames (stereo) not yet consumed
     std::size_t base{};                  // index of pending[0] (frames)
     double position{};                   // source frame position of the next output frame
-#if defined(OR2_HAVE_VORBIS)
+#if defined(OR2_ANDROID)
+    stb_vorbis* vb{};
+#elif defined(OR2_HAVE_VORBIS)
     OggVorbis_File vf{};
     static std::size_t read(void* p,std::size_t size,std::size_t n,void* user){
         auto& s=*static_cast<Impl*>(user);const std::size_t want=size*n,left=s.file.size()-s.read_at,take=std::min(want,left);
@@ -50,7 +54,9 @@ struct MusicStream::Impl {
     static long tell(void* user){return long(static_cast<Impl*>(user)->read_at);}
 #endif
     void close(){
-#if defined(OR2_HAVE_VORBIS)
+#if defined(OR2_ANDROID)
+        if(vb){stb_vorbis_close(vb);vb=nullptr;}
+#elif defined(OR2_HAVE_VORBIS)
         if(open)ov_clear(&vf);
 #endif
         open=false;ended=false;pending.clear();base=0;position=0;file.clear();read_at=0;
@@ -59,7 +65,7 @@ struct MusicStream::Impl {
 MusicStream::MusicStream():impl_(new Impl){}
 MusicStream::~MusicStream(){impl_->close();}
 bool MusicStream::decoder_available(){
-#if defined(OR2_HAVE_VORBIS)
+#if defined(OR2_ANDROID) || defined(OR2_HAVE_VORBIS)
     return true;
 #else
     return false;
@@ -67,7 +73,19 @@ bool MusicStream::decoder_available(){
 }
 bool MusicStream::open(std::vector<std::uint8_t> file,bool loop,std::string& error){
     auto& s=*impl_;s.close();
-#if defined(OR2_HAVE_VORBIS)
+#if defined(OR2_ANDROID)
+    s.file=std::move(file);s.read_at=0;
+    int err=0;
+    s.vb=stb_vorbis_open_memory(s.file.data(),int(s.file.size()),&err,nullptr);
+    if(!s.vb){s.file.clear();return fail(error,"music: not an Ogg Vorbis stream");}
+    const stb_vorbis_info info=stb_vorbis_get_info(s.vb);
+    if(info.channels<1||info.channels>2||info.sample_rate<8000||info.sample_rate>192000){
+        stb_vorbis_close(s.vb);s.vb=nullptr;s.file.clear();return fail(error,"music: unsupported Vorbis layout");
+    }
+    s.open=true;s.loop=loop;s.rate=std::uint32_t(info.sample_rate);s.channels=std::uint32_t(info.channels);
+    stats.rate=s.rate;stats.channels=s.channels;++stats.opens;
+    return true;
+#elif defined(OR2_HAVE_VORBIS)
     s.file=std::move(file);s.read_at=0;
     const ov_callbacks cb{&Impl::read,&Impl::seek,nullptr,&Impl::tell};
     if(ov_open_callbacks(&s,&s.vf,nullptr,0,cb)!=0){s.file.clear();return fail(error,"music: not an Ogg Vorbis stream");}
@@ -84,7 +102,27 @@ bool MusicStream::open(std::vector<std::uint8_t> file,bool loop,std::string& err
 void MusicStream::stop(){if(impl_->open)++stats.stops;impl_->close();}
 bool MusicStream::playing()const{return impl_->open&&!impl_->ended;}
 bool MusicStream::refill(std::string& error){
-#if defined(OR2_HAVE_VORBIS)
+#if defined(OR2_ANDROID)
+    auto& s=*impl_;
+    if(!s.vb)return false;
+    short raw[4096];
+    for(int attempt=0;attempt<4;++attempt){
+        const int got=stb_vorbis_get_samples_short_interleaved(s.vb,int(s.channels),raw,int(sizeof(raw)/sizeof(short)));
+        if(got>0){
+            const std::size_t total=std::size_t(got)*s.channels;
+            if(s.channels==2)s.pending.insert(s.pending.end(),raw,raw+total);
+            else for(int i=0;i<got;++i){s.pending.push_back(raw[i]);s.pending.push_back(raw[i]);}
+            return true;
+        }
+        if(got==0){
+            if(!s.loop){s.ended=true;++stats.ends;return true;}
+            stb_vorbis_seek_start(s.vb);
+            ++stats.loops;continue;
+        }
+        return fail(error,"music: Vorbis decode error");
+    }
+    return fail(error,"music: no data after a loop seek");
+#elif defined(OR2_HAVE_VORBIS)
     auto& s=*impl_;
     char raw[8192];int section=0;
     for(int attempt=0;attempt<4;++attempt){

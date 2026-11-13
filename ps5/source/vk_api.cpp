@@ -27,7 +27,11 @@ void load_global() { vkCreateInstance = checked<PFN_vkCreateInstance>(instance_p
 void load_instance(VkInstance instance, bool display) {
 #define LOAD(name) vk##name = checked<PFN_vk##name>(instance_proc(instance, "vk" #name), "vk" #name);
     OR2_VK_INSTANCE(LOAD)
+#if defined(__ANDROID__) || defined(ANDROID)
+    if (display) { OR2_VK_SURFACE(LOAD) }
+#else
     if (display) { OR2_VK_DISPLAY(LOAD) }
+#endif
 #undef LOAD
 }
 void load_device(VkDevice device, bool display) {

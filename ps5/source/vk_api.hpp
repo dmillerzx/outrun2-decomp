@@ -9,12 +9,17 @@
  X(GetPhysicalDeviceFeatures) X(GetPhysicalDeviceFeatures2) X(GetPhysicalDeviceMemoryProperties) \
  X(GetPhysicalDeviceQueueFamilyProperties) X(GetPhysicalDeviceFormatProperties) \
  X(EnumerateDeviceExtensionProperties) X(CreateDevice) X(GetDeviceProcAddr)
-#define OR2_VK_DISPLAY(X) \
- X(GetPhysicalDeviceDisplayPropertiesKHR) X(GetPhysicalDeviceDisplayPlanePropertiesKHR) \
- X(GetDisplayPlaneSupportedDisplaysKHR) X(GetDisplayModePropertiesKHR) \
- X(GetDisplayPlaneCapabilitiesKHR) X(CreateDisplayPlaneSurfaceKHR) X(DestroySurfaceKHR) \
+#define OR2_VK_SURFACE(X) \
+ X(DestroySurfaceKHR) \
  X(GetPhysicalDeviceSurfaceSupportKHR) X(GetPhysicalDeviceSurfaceCapabilitiesKHR) \
  X(GetPhysicalDeviceSurfaceFormatsKHR) X(GetPhysicalDeviceSurfacePresentModesKHR)
+#define OR2_VK_DISPLAY_PLANE(X) \
+ X(GetPhysicalDeviceDisplayPropertiesKHR) X(GetPhysicalDeviceDisplayPlanePropertiesKHR) \
+ X(GetDisplayPlaneSupportedDisplaysKHR) X(GetDisplayModePropertiesKHR) \
+ X(GetDisplayPlaneCapabilitiesKHR) X(CreateDisplayPlaneSurfaceKHR)
+#define OR2_VK_DISPLAY(X) \
+ OR2_VK_SURFACE(X) \
+ OR2_VK_DISPLAY_PLANE(X)
 #define OR2_VK_DEVICE(X) \
  X(DestroyDevice) X(GetDeviceQueue) X(DeviceWaitIdle) X(QueueSubmit) X(QueueWaitIdle) \
  X(CreateCommandPool) X(DestroyCommandPool) X(ResetCommandPool) X(AllocateCommandBuffers) \

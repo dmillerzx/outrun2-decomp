@@ -79,7 +79,7 @@ bool present_frame(RendererImpl& r){
 #endif
         const auto swap_end=std::chrono::steady_clock::now();
         r.stats.last_present_ns=std::uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(swap_end-swap_begin).count());
-#if (defined(OR2_PS5_OPENGL) || defined(OR2_PS5_VULKAN)) && defined(OR2_PS5_PAYLOAD)
+#if (defined(OR2_PS5_OPENGL) || defined(OR2_PS5_VULKAN)) && (defined(OR2_PS5_PAYLOAD) || defined(OR2_ANDROID))
         // One bounded report per 120 frames; never emit/flush logs per draw.
         struct Timings {std::uint64_t record{},compose{},swap{},frames{},draws{};};
         static Timings timings;

@@ -87,6 +87,17 @@ const std::uint8_t* exe_image_bytes(std::uint32_t va,std::uint32_t size){
     return image_storage().data()+(va-ExeImageBase);
 }
 std::uint32_t exe_image_u32(std::uint32_t va){return rd32(exe_image_bytes(va,4));}
+void exe_image_patch(std::uint32_t va, const void* data, std::size_t size) {
+    if(!exe_image_loaded()&&!exe_image_autoload())throw std::runtime_error("OR2006C2C.EXE image not loaded for patch");
+    if(va<ExeImageBase||va-ExeImageBase>ExeImageSize||size>ExeImageSize-(va-ExeImageBase))return;
+    std::memcpy(image_storage().data()+(va-ExeImageBase),data,size);
+}
+void exe_image_patch_u8(std::uint32_t va, std::uint8_t value) {
+    exe_image_patch(va,&value,1);
+}
+void exe_image_patch_u32(std::uint32_t va, std::uint32_t value) {
+    exe_image_patch(va,&value,4);
+}
 
 bool exe_image_map_pe(const std::vector<std::uint8_t>& file,std::vector<std::uint8_t>& image,std::string* error){
     // PEC2 is stored in the first section's relocation-pointer field.

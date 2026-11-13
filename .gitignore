@@ -42,3 +42,13 @@ retail-root.txt
 
 # Work files (notes, reports, scratch): never committed
 work/
+
+# Android build outputs & intermediate objects
+.gradle/
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/jniLibs/arm64-v8a/libmain.so
+*.spv
+*.spv.linked*
+

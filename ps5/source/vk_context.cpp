@@ -75,6 +75,15 @@ bool PipelineState::operator<(const PipelineState& b)const{
     return std::memcmp(this,&b,sizeof(*this))<0;
 }
 namespace {unsigned preferred_width{},preferred_height{},native_refresh{120};}
+#if defined(__ANDROID__) || defined(ANDROID)
+#include <SDL.h>
+#include <SDL_vulkan.h>
+namespace {
+SDL_Window* g_android_window = nullptr;
+}
+void set_android_window(::SDL_Window* window) { g_android_window = window; }
+::SDL_Window* get_android_window() { return g_android_window; }
+#endif
 #ifdef OR2_PS5_PAYLOAD
 extern "C" int wsi_videoout_set_flip_rate(int rate);   // PS5 RADV VideoOut WSI
 #endif
@@ -107,10 +116,27 @@ Context::Context(unsigned width,unsigned height,bool native_display):native_(nat
     try{
         load_global();
         VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};app.pApplicationName="OutRun2006 PS5";app.apiVersion=VK_API_VERSION_1_1;
-        const char* extensions[]{VK_KHR_SURFACE_EXTENSION_NAME,VK_KHR_DISPLAY_EXTENSION_NAME};
         VkInstanceCreateInfo info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};info.pApplicationInfo=&app;
+#if defined(__ANDROID__) || defined(ANDROID)
+        unsigned int ext_count = 0;
+        std::vector<const char*> android_extensions;
+        if (g_android_window) {
+            SDL_Vulkan_GetInstanceExtensions(g_android_window, &ext_count, nullptr);
+            android_extensions.resize(ext_count);
+            SDL_Vulkan_GetInstanceExtensions(g_android_window, &ext_count, android_extensions.data());
+        } else {
+            android_extensions = {VK_KHR_SURFACE_EXTENSION_NAME, "VK_KHR_android_surface"};
+        }
+        if (native_) {
+            info.enabledExtensionCount = static_cast<uint32_t>(android_extensions.size());
+            info.ppEnabledExtensionNames = android_extensions.data();
+        }
+        require(vkCreateInstance(&info,nullptr,&instance_),"Create Vulkan instance");load_instance(instance_,native_);
+#else
+        const char* extensions[]{VK_KHR_SURFACE_EXTENSION_NAME,VK_KHR_DISPLAY_EXTENSION_NAME};
         if(native_){info.enabledExtensionCount=2;info.ppEnabledExtensionNames=extensions;}
         require(vkCreateInstance(&info,nullptr,&instance_),"Create Vulkan instance");load_instance(instance_,native_);
+#endif
         unsigned count=0;require(vkEnumeratePhysicalDevices(instance_,&count,nullptr),"Enumerate Vulkan devices");
         if(!count)throw std::runtime_error("No Vulkan physical device");
         std::vector<VkPhysicalDevice> devices(count);require(vkEnumeratePhysicalDevices(instance_,&count,devices.data()),"Get Vulkan devices");
@@ -689,7 +715,10 @@ void Context::submit(){
 #endif
         // The present is queued behind the frame; no CPU wait here. The slot
         // fence (waited before the slot records again) bounds frames in flight.
-        require(vkQueuePresentKHR(queue_,&p),"Present Vulkan frame");
+        const VkResult pres = vkQueuePresentKHR(queue_,&p);
+        if(pres != VK_SUCCESS && pres != VK_SUBOPTIMAL_KHR){
+            require(pres,"Present Vulkan frame");
+        }
         acquired_live_=false;
 #ifdef OR2_PS5_PAYLOAD
         // VideoOut flips do not dismiss the Shell's launch image. EGL does
@@ -732,6 +761,89 @@ void Context::resolve(const Texture& source,const Texture& destination){
     vkCmdResolveImage(command_,source->image,source->layout,destination->image,destination->layout,1,&resolve);
 }
 void Context::setup_display(unsigned width,unsigned height){
+#if defined(__ANDROID__) || defined(ANDROID)
+    if(!g_android_window)throw std::runtime_error("No Android SDL window for Vulkan surface");
+    if(!SDL_Vulkan_CreateSurface(g_android_window,instance_,&surface_)){
+        throw std::runtime_error(std::string("SDL_Vulkan_CreateSurface failed: ")+SDL_GetError());
+    }
+    VkBool32 supported=0;
+    require(vkGetPhysicalDeviceSurfaceSupportKHR(physical_,family_,surface_,&supported),"Check display queue");
+    if(!supported)throw std::runtime_error("Graphics queue cannot present to surface");
+
+    VkSurfaceCapabilitiesKHR caps{};
+    require(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_,surface_,&caps),"Get display capabilities");
+
+    unsigned count=0;
+    require(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_,surface_,&count,nullptr),"Enumerate display formats");
+    std::vector<VkSurfaceFormatKHR> formats(count);
+    require(vkGetPhysicalDeviceSurfaceFormatsKHR(physical_,surface_,&count,formats.data()),"Get display formats");
+
+    auto format=std::find_if(formats.begin(),formats.end(),[](auto f){return f.format==VK_FORMAT_B8G8R8A8_UNORM||f.format==VK_FORMAT_R8G8B8A8_UNORM;});
+    if(format==formats.end())format=formats.begin();
+
+    display_width_=caps.currentExtent.width!=0xFFFFFFFF?caps.currentExtent.width:width;
+    display_height_=caps.currentExtent.height!=0xFFFFFFFF?caps.currentExtent.height:height;
+    native_refresh=60u;
+
+    unsigned images=std::max(3u,caps.minImageCount);
+    if(caps.maxImageCount)images=std::min(images,caps.maxImageCount);
+
+    VkSurfaceTransformFlagBitsKHR preTransform=VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    if(!(caps.supportedTransforms&VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)){
+        preTransform=caps.currentTransform;
+    }
+
+    unsigned pm_count = 0;
+    require(vkGetPhysicalDeviceSurfacePresentModesKHR(physical_, surface_, &pm_count, nullptr), "Enumerate surface present modes");
+    std::vector<VkPresentModeKHR> pmodes(pm_count);
+    require(vkGetPhysicalDeviceSurfacePresentModesKHR(physical_, surface_, &pm_count, pmodes.data()), "Get surface present modes");
+    VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    for (auto pm : pmodes) {
+        if (pm == VK_PRESENT_MODE_MAILBOX_KHR) {
+            presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+            break;
+        }
+    }
+
+    std::fprintf(stdout,"[vk-android] caps extent=%ux%u currentTransform=%x supported=%x preTransform=%x swapchain=%ux%u presentMode=%d\n",
+        caps.currentExtent.width,caps.currentExtent.height,
+        unsigned(caps.currentTransform),unsigned(caps.supportedTransforms),
+        unsigned(preTransform),display_width_,display_height_,int(presentMode));
+
+    VkSwapchainCreateInfoKHR swap{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+    swap.surface=surface_;
+    swap.minImageCount=images;
+    swap.imageFormat=format->format;
+    swap.imageColorSpace=format->colorSpace;
+    swap.imageExtent={display_width_,display_height_};
+    swap.imageArrayLayers=1;
+    swap.imageUsage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    swap.imageSharingMode=VK_SHARING_MODE_EXCLUSIVE;
+    swap.preTransform=preTransform;
+    swap.compositeAlpha=(caps.supportedCompositeAlpha&VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)?
+        VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR:VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    swap.presentMode=presentMode;
+    swap.clipped=VK_TRUE;
+
+    require(vkCreateSwapchainKHR(device_,&swap,nullptr,&swapchain_),"Create Android swapchain");
+    require(vkGetSwapchainImagesKHR(device_,swapchain_,&count,nullptr),"Enumerate swapchain images");
+    std::vector<VkImage> handles(count);
+    require(vkGetSwapchainImagesKHR(device_,swapchain_,&count,handles.data()),"Get swapchain images");
+
+    for(auto handle:handles){
+        auto image=std::make_shared<Image>();
+        image->device=device_;
+        image->image=handle;
+        image->width=display_width_;
+        image->height=display_height_;
+        image->format=format->format;
+        image->owned=false;
+        swap_images_.push_back(image);
+    }
+    VkSemaphoreCreateInfo semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    rendered_.resize(swap_images_.size());
+    for(auto& s:rendered_)require(vkCreateSemaphore(device_,&semaphore,nullptr,&s),"Create present semaphore");
+#else
     unsigned count=0;require(vkGetPhysicalDeviceDisplayPropertiesKHR(physical_,&count,nullptr),"Enumerate PS5 displays");
     if(!count)throw std::runtime_error("RADV has no native display");std::vector<VkDisplayPropertiesKHR> displays(count);
     require(vkGetPhysicalDeviceDisplayPropertiesKHR(physical_,&count,displays.data()),"Get PS5 display");const auto display=displays[0].display;
@@ -771,6 +883,7 @@ void Context::setup_display(unsigned width,unsigned height){
     for(auto handle:handles){auto image=std::make_shared<Image>();image->device=device_;image->image=handle;image->width=display_width_;image->height=display_height_;image->format=format->format;image->owned=false;swap_images_.push_back(image);}
     VkSemaphoreCreateInfo semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     rendered_.resize(swap_images_.size());for(auto& s:rendered_)require(vkCreateSemaphore(device_,&semaphore,nullptr,&s),"Create present semaphore");
+#endif
 }
 Texture Context::display_target(){
     if(!native_)return host_display_;
@@ -786,7 +899,10 @@ Texture Context::display_target(){
 #ifdef OR2_PS5_PAYLOAD
             const runtime::ProfileScope wait(runtime::profile_key(runtime::ProfileRenderer,0,runtime::ProfAcquire));
 #endif
-            require(vkAcquireNextImageKHR(device_,swapchain_,std::numeric_limits<std::uint64_t>::max(),frames_[frame_].acquired,VK_NULL_HANDLE,&swap_index_),"Acquire VideoOut image");
+            const VkResult ares = vkAcquireNextImageKHR(device_,swapchain_,std::numeric_limits<std::uint64_t>::max(),frames_[frame_].acquired,VK_NULL_HANDLE,&swap_index_);
+            if(ares != VK_SUCCESS && ares != VK_SUBOPTIMAL_KHR){
+                require(ares,"Acquire VideoOut image");
+            }
         }
         acquired_live_=true;
 #ifdef OR2_PS5_PAYLOAD

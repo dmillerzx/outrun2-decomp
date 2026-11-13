@@ -7,7 +7,7 @@ namespace outrun::ps5_runtime {
 // a fallback/reference; game-facing handles/state stay with the common device.
 class VulkanD3D9Device final: public platform::PcSoftD3D9Device {
 public:
-#ifdef OR2_PS5_PAYLOAD
+#if defined(OR2_PS5_PAYLOAD) || defined(OR2_ANDROID)
     static constexpr bool DefaultFrameQueries=false;
 #else
     static constexpr bool DefaultFrameQueries=true;

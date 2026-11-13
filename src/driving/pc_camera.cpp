@@ -98,7 +98,13 @@ void camera_project_484bd0(Bytes c,PcMatrixStack& s,PcCameraDevice& d,
     c.check(0,0x3b4);
     pc_matrix_push(s);
     camera_fov_483c10(c,screen);
-    camera_perspective_404310(s,c.f32(0xa0),c.f32(0xb8),c.f32(0xbc),c.f32(0xc0),c.f32(0xc4),c.f32(0xc8),d);
+    float znear = c.f32(0xbc);
+    // FixZBufferPrecision (OutRun2006Tweaks): 0.1 default causes severe distant z-fighting.
+    // In third-person and FPV race camera modes (0 or 2), improve znear to 1.0f.
+    if ((c.i8(0x34a) == 2 || c.i8(0x34a) == 0) && znear <= 0.25f) {
+        znear = 1.0f;
+    }
+    camera_perspective_404310(s,c.f32(0xa0),c.f32(0xb8),znear,c.f32(0xc0),c.f32(0xc4),c.f32(0xc8),d);
     camera_device_store(s,d,1);
     pc_matrix_pop(s);
     camera_view_482f20(c,s,d,camera_blend_4493e0(blend));

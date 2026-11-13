@@ -166,8 +166,13 @@ bool append_start_loading(platform::FrontendPreviewPack& frontend,
 }
 // ---- frontend quads, shared by the deko3d renderer and the host_nro
 // compositor (same vertices on both) ----
+#if defined(OR2_ANDROID)
+constexpr std::uint32_t FramebufferWidth=1920u;
+constexpr std::uint32_t FramebufferHeight=1080u;
+#else
 constexpr std::uint32_t FramebufferWidth=1280u;
 constexpr std::uint32_t FramebufferHeight=720u;
+#endif
 constexpr std::uint32_t FrontendTransformIndex=8u;
 constexpr std::uint32_t FrontendVerticesPerDraw=4u;
 // The SPRANI instance pool is drawn by the ported PC 2D renderer (428170 ->

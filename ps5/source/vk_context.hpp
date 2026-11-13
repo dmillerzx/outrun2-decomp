@@ -9,6 +9,10 @@
 #include <unordered_map>
 #include <functional>
 
+#if defined(__ANDROID__) || defined(ANDROID)
+struct SDL_Window;
+#endif
+
 namespace outrun::ps5_runtime::vulkan {
 struct Image {
     VkDevice device{}; VkImage image{}; VkDeviceMemory memory{}; VkImageView view{};
@@ -51,6 +55,10 @@ struct PipelineState {
     unsigned shader{}, layout{}, samples{1}, depth{}; VkFormat format{VK_FORMAT_R8G8B8A8_UNORM};
     bool operator<(const PipelineState& b)const;
 };
+#if defined(__ANDROID__) || defined(ANDROID)
+void set_android_window(::SDL_Window* window);
+::SDL_Window* get_android_window();
+#endif
 // Choose a scanout for the compositor: the smallest that fits, then the
 // refresh nearest `refresh_mhz` (millihertz).
 VkDisplayModePropertiesKHR select_display_mode(const std::vector<VkDisplayModePropertiesKHR>&,unsigned width,unsigned height,unsigned refresh_mhz=60000);

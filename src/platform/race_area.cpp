@@ -8,7 +8,7 @@
 #include <cstring>
 #include <set>
 #include <sstream>
-#if __has_include(<execinfo.h>)
+#if __has_include(<execinfo.h>) && !defined(__ANDROID__)
 #define OR2_HAVE_BACKTRACE 1
 #include <execinfo.h>
 #endif
@@ -260,7 +260,7 @@ struct Port {
             if(v%0xc8==0||v%0x140==0)se(0x8c);
             if(v==0x258)se(0x808c);
             return;
-        case 0x44bcc0u:se(0x808c);return;
+        case 0x44bcc0u:se(0x808c);se(0x808d);return; // FixPegasusClopping: OutRun2006Tweaks fix for looping horse clop sound
         case 0x44bb90u:if(v==0)se(0x8e);return;
         case 0x44bbb0u:if(v==0)se(0x90);else if(v==0xc8||v==0x12c)se(0x8f);return;
         case 0x44bcd0u:se(0x8090);return;

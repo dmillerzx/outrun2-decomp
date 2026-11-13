@@ -16,7 +16,7 @@ struct PcPerfZone {
 inline bool& pc_perf_enabled(){static bool on=false;return on;}
 inline std::vector<PcPerfZone*>& pc_perf_zones(){static std::vector<PcPerfZone*> z;return z;}
 inline PcPerfZone::PcPerfZone(const char* n):name(n){pc_perf_zones().push_back(this);}
-#if defined(__aarch64__)
+#if defined(__aarch64__) && !defined(__ANDROID__) && !defined(ANDROID)
 inline std::uint64_t pc_perf_now(){std::uint64_t t;__asm__ volatile("mrs %0, cntpct_el0":"=r"(t));return t;}
 inline std::uint64_t pc_perf_freq(){std::uint64_t f;__asm__ volatile("mrs %0, cntfrq_el0":"=r"(f));return f;}
 #else

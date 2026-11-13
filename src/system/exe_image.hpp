@@ -27,6 +27,9 @@ bool exe_image_loaded();
 // when no image is loaded or the range is outside the image.
 const std::uint8_t* exe_image_bytes(std::uint32_t va,std::uint32_t size);
 std::uint32_t exe_image_u32(std::uint32_t va);
+void exe_image_patch(std::uint32_t va, const void* data, std::size_t size);
+void exe_image_patch_u8(std::uint32_t va, std::uint8_t value);
+void exe_image_patch_u32(std::uint32_t va, std::uint32_t value);
 
 // Progress of a long step: done/total units and a short label.
 using ExeImageProgress=std::function<void(std::uint64_t done,std::uint64_t total)>;
