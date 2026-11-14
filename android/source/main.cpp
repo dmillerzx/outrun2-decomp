@@ -80,7 +80,12 @@ public:
         }
         target_time = std::max(clock::now(), target_time + std::chrono::nanoseconds(16666667));
 
-        const auto result = outrun::ps5_runtime::ps5_renderer_draw(r_);
+        auto result = outrun::ps5_runtime::ps5_renderer_draw(r_);
+        if (!result) {
+            const auto err = outrun::ps5_runtime::ps5_renderer_pc_error(r_);
+            LOGI("[Presenter::draw] draw attempt 1 failed: %s; retrying...", err.c_str());
+            result = outrun::ps5_runtime::ps5_renderer_draw(r_);
+        }
         if (++draw_count_ % 120 == 0 || !result) {
             const auto stats = outrun::ps5_runtime::ps5_renderer_stats(r_);
             LOGI("[Presenter::draw] res=%d frame=%u stats: frames=%u movie=%u loading=%u frontend=%u unowned=%u err=%s",
@@ -337,10 +342,14 @@ extern "C" int SDL_main(int argc, char* argv[]) {
 
     LOGI("Starting native OutRun 2006 runtime engine loop!");
     const auto rc = outrun::platform::run_native_runtime(context, binding.services);
-    LOGI("Runtime loop completed with return code: %u", rc);
+    LOGI("Runtime loop completed with return code: %u (render_failed=%d audio_open=%d movie_err=%s music_err=%s)",
+         rc, int(diag.render_failed), int(diag.audio_open), diag.movie_error.c_str(), diag.music_error.c_str());
 
     rt::close_frontend(diag, context, fe);
     outrun::ps5_runtime::ps5_renderer_shutdown(renderer);
+
+    audio.close();
+    diag.audio_output = nullptr;
 
     if (controller) {
         SDL_GameControllerClose(controller);

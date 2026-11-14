@@ -198,5 +198,8 @@ private:
     // Present waits per swapchain image; acquires use the frame slot's semaphore.
     std::vector<VkSemaphore> rendered_; bool acquired_live_{},present_pending_{}; unsigned swap_index_{};
     unsigned display_width_{},display_height_{};
+    void recreate_swapchain();
+    bool swapchain_dirty_{};
+    VkSurfaceFormatKHR surface_format_{};
 };
 }

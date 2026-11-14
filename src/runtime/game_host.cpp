@@ -435,11 +435,15 @@ std::uint32_t frame_call(void* user,std::uint32_t pc,const std::uint32_t*,std::s
            s.pc_scene->scene_82e7d4=s.runtime->race.camera_override.scene_82e7d4;s.pc_scene->interpolation_override_82e7d8=s.runtime->race.camera_override.override_82e7d8;
            s.pc_scene->camera_preset_819634=s.runtime->event_function36.camera_preset_819634;   // 482E70 (Showroom)
            ProfileScope prof(profile_key(ProfileRenderer,0,ProfSceneRender));
-           s.pc_scene->render_frame(s.runtime->event_state,s.runtime->mode_state.current);}))s.render_failed=true;
+           s.pc_scene->render_frame(s.runtime->event_state,s.runtime->mode_state.current);})) {
+               std::fprintf(stderr,"[game_host] set_pc_scene failed! render_failed=true\n");
+               s.render_failed=true;
+           }
     bool drawn=false;
     {ProfileScope prof(profile_key(ProfileRenderer,0,ProfDrawTotal));
      trace_mark("draw");drawn=!s.render_failed&&p.draw();trace_mark("drawn");}
     if(!s.render_failed&&!drawn){
+        std::fprintf(stderr,"[game_host] p.draw() returned false! render_failed=true\n");
         s.render_failed=true;
     }else if(!s.render_failed&&s.runtime&&s.frontend_visible&&s.runtime->mode_state.current==32u){
         // Feed authored SUMO_FE completion back to the original key-22
@@ -896,12 +900,18 @@ void event_invoke(void* user,std::uint32_t callback,std::uint32_t work,std::uint
 #endif
 }
 
-void mode_invoke(void* user,std::uint32_t callback,std::uint32_t,pf::NativeModePhase phase){
+void mode_invoke(void* user,std::uint32_t callback,std::uint32_t mode,pf::NativeModePhase phase){
     auto& s=*static_cast<GameHost*>(user);
     ++s.mode_callbacks;
-    if(phase==pf::NativeModePhase::Init)++s.mode_init;
+    if(phase==pf::NativeModePhase::Init){
+        ++s.mode_init;
+        std::fprintf(stdout,"[mode_invoke] Mode %u -> Init (callback 0x%x)\n",mode,callback);
+    }
     else if(phase==pf::NativeModePhase::Control)++s.mode_ctrl;
-    else ++s.mode_exit;
+    else{
+        ++s.mode_exit;
+        std::fprintf(stdout,"[mode_invoke] Mode %u -> Exit (callback 0x%x)\n",mode,callback);
+    }
     s.last_callback=callback;
 }
 

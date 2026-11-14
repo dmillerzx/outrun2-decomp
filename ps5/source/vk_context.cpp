@@ -716,9 +716,17 @@ void Context::submit(){
         // The present is queued behind the frame; no CPU wait here. The slot
         // fence (waited before the slot records again) bounds frames in flight.
         const VkResult pres = vkQueuePresentKHR(queue_,&p);
+#if defined(__ANDROID__) || defined(ANDROID)
+        if(pres == VK_ERROR_OUT_OF_DATE_KHR){
+            swapchain_dirty_ = true;
+        }else if(pres != VK_SUCCESS && pres != VK_SUBOPTIMAL_KHR){
+            require(pres,"Present Vulkan frame");
+        }
+#else
         if(pres != VK_SUCCESS && pres != VK_SUBOPTIMAL_KHR){
             require(pres,"Present Vulkan frame");
         }
+#endif
         acquired_live_=false;
 #ifdef OR2_PS5_PAYLOAD
         // VideoOut flips do not dismiss the Shell's launch image. EGL does
@@ -780,6 +788,7 @@ void Context::setup_display(unsigned width,unsigned height){
 
     auto format=std::find_if(formats.begin(),formats.end(),[](auto f){return f.format==VK_FORMAT_B8G8R8A8_UNORM||f.format==VK_FORMAT_R8G8B8A8_UNORM;});
     if(format==formats.end())format=formats.begin();
+    surface_format_ = *format;
 
     display_width_=caps.currentExtent.width!=0xFFFFFFFF?caps.currentExtent.width:width;
     display_height_=caps.currentExtent.height!=0xFFFFFFFF?caps.currentExtent.height:height;
@@ -879,29 +888,112 @@ void Context::setup_display(unsigned width,unsigned height){
     rendered_.resize(swap_images_.size());for(auto& s:rendered_)require(vkCreateSemaphore(device_,&semaphore,nullptr,&s),"Create present semaphore");
 #endif
 }
+
+void Context::recreate_swapchain(){
+#if defined(__ANDROID__) || defined(ANDROID)
+    if(device_ == VK_NULL_HANDLE || surface_ == VK_NULL_HANDLE) return;
+    vkDeviceWaitIdle(device_);
+    for(auto s : rendered_){
+        if(s != VK_NULL_HANDLE) vkDestroySemaphore(device_, s, nullptr);
+    }
+    rendered_.clear();
+    swap_images_.clear();
+
+    VkSurfaceCapabilitiesKHR caps{};
+    if(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &caps) != VK_SUCCESS) return;
+    display_width_ = caps.currentExtent.width != 0xFFFFFFFF ? caps.currentExtent.width : 1920u;
+    display_height_ = caps.currentExtent.height != 0xFFFFFFFF ? caps.currentExtent.height : 1080u;
+
+    unsigned images = std::max(3u, caps.minImageCount);
+    if(caps.maxImageCount) images = std::min(images, caps.maxImageCount);
+
+    VkSurfaceTransformFlagBitsKHR preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    if(!(caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)){
+        preTransform = caps.currentTransform;
+    }
+
+    VkSwapchainCreateInfoKHR swap{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+    swap.surface = surface_;
+    swap.minImageCount = images;
+    swap.imageFormat = surface_format_.format;
+    swap.imageColorSpace = surface_format_.colorSpace;
+    swap.imageExtent = {display_width_, display_height_};
+    swap.imageArrayLayers = 1;
+    swap.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    swap.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    swap.preTransform = preTransform;
+    swap.compositeAlpha = (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)?
+        VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR : VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    swap.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    swap.clipped = VK_TRUE;
+    swap.oldSwapchain = swapchain_;
+
+    VkSwapchainKHR new_swapchain = VK_NULL_HANDLE;
+    VkResult res = vkCreateSwapchainKHR(device_, &swap, nullptr, &new_swapchain);
+    if(swapchain_ != VK_NULL_HANDLE){
+        vkDestroySwapchainKHR(device_, swapchain_, nullptr);
+    }
+    if(res != VK_SUCCESS){
+        std::fprintf(stderr, "[vk-android] recreate_swapchain failed: %d\n", int(res));
+        swapchain_ = VK_NULL_HANDLE;
+        return;
+    }
+    swapchain_ = new_swapchain;
+
+    unsigned count = 0;
+    vkGetSwapchainImagesKHR(device_, swapchain_, &count, nullptr);
+    std::vector<VkImage> handles(count);
+    vkGetSwapchainImagesKHR(device_, swapchain_, &count, handles.data());
+
+    for(auto handle : handles){
+        auto image = std::make_shared<Image>();
+        image->device = device_;
+        image->image = handle;
+        image->width = display_width_;
+        image->height = display_height_;
+        image->format = surface_format_.format;
+        image->owned = false;
+        swap_images_.push_back(image);
+    }
+    VkSemaphoreCreateInfo semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    rendered_.resize(swap_images_.size());
+    for(auto& s : rendered_) vkCreateSemaphore(device_, &semaphore, nullptr, &s);
+    swapchain_dirty_ = false;
+    std::fprintf(stdout, "[vk-android] successfully recreated swapchain: %ux%u images=%u\n", display_width_, display_height_, count);
+#endif
+}
+
 Texture Context::display_target(){
     if(!native_)return host_display_;
     // Start (or continue) the recording first: it waits for the slot whose
     // acquire semaphore is reused below.
     start();
     if(!acquired_live_){
-#ifdef OR2_PS5_PAYLOAD
-        static unsigned acquires=0;const bool trace=++acquires<=4;
-        if(trace)std::fprintf(stdout,"[vk-acquire] %u begin\n",acquires);
-#endif
-        {
-#ifdef OR2_PS5_PAYLOAD
-            const runtime::ProfileScope wait(runtime::profile_key(runtime::ProfileRenderer,0,runtime::ProfAcquire));
-#endif
-            const VkResult ares = vkAcquireNextImageKHR(device_,swapchain_,std::numeric_limits<std::uint64_t>::max(),frames_[frame_].acquired,VK_NULL_HANDLE,&swap_index_);
-            if(ares != VK_SUCCESS && ares != VK_SUBOPTIMAL_KHR){
-                require(ares,"Acquire VideoOut image");
-            }
+#if defined(__ANDROID__) || defined(ANDROID)
+        if(swapchain_dirty_ || swapchain_ == VK_NULL_HANDLE){
+            recreate_swapchain();
         }
-        acquired_live_=true;
-#ifdef OR2_PS5_PAYLOAD
-        if(trace)std::fprintf(stdout,"[vk-acquire] %u image=%u\n",acquires,swap_index_);
+        VkResult ares = vkAcquireNextImageKHR(device_,swapchain_,std::numeric_limits<std::uint64_t>::max(),frames_[frame_].acquired,VK_NULL_HANDLE,&swap_index_);
+        if(ares == VK_ERROR_OUT_OF_DATE_KHR){
+            std::fprintf(stdout,"[vk-acquire] swapchain out of date (%d), recreating...\n",int(ares));
+            recreate_swapchain();
+            ares = vkAcquireNextImageKHR(device_,swapchain_,std::numeric_limits<std::uint64_t>::max(),frames_[frame_].acquired,VK_NULL_HANDLE,&swap_index_);
+        }
+        if(ares != VK_SUCCESS && ares != VK_SUBOPTIMAL_KHR){
+            std::fprintf(stderr,"[vk-acquire] warning: acquire failed: %d\n",int(ares));
+            if(!swap_images_.empty()){
+                swap_index_ = std::min(swap_index_, unsigned(swap_images_.size() - 1));
+                return swap_images_[swap_index_];
+            }
+            require(ares,"Acquire VideoOut image");
+        }
+#else
+        const VkResult ares = vkAcquireNextImageKHR(device_,swapchain_,std::numeric_limits<std::uint64_t>::max(),frames_[frame_].acquired,VK_NULL_HANDLE,&swap_index_);
+        if(ares != VK_SUCCESS && ares != VK_SUBOPTIMAL_KHR){
+            require(ares,"Acquire VideoOut image");
+        }
 #endif
+        acquired_live_=true;
     }
     return swap_images_[swap_index_];
 }
