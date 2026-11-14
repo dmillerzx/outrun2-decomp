@@ -19,9 +19,13 @@
 #include "enhancements/gpu_backend.hpp"
 #include "enhancements/frame_rate.hpp"
 #include "enhancements/outrun2006_tweaks.hpp"
+#include "enhancements/vibration.hpp"
 #include "audio.hpp"
 #include "renderer.hpp"
 #include "vk_context.hpp"
+#include <jni.h>
+#include <SDL_haptic.h>
+#include <SDL_system.h>
 
 #define LOG_TAG "OutRun2006-Android"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -30,6 +34,57 @@
 namespace rt = outrun::runtime;
 
 namespace {
+
+static SDL_GameController* s_active_controller = nullptr;
+static SDL_Haptic* s_active_haptic = nullptr;
+
+static void trigger_android_haptics(float left_motor, float right_motor) {
+    const Uint16 left_u16 = static_cast<Uint16>(std::clamp(int(left_motor * 65535.0f), 0, 65535));
+    const Uint16 right_u16 = static_cast<Uint16>(std::clamp(int(right_motor * 65535.0f), 0, 65535));
+    const float max_intensity = std::max(left_motor, right_motor);
+
+    if (s_active_controller) {
+        SDL_GameControllerRumble(s_active_controller, left_u16, right_u16, 50);
+        SDL_Joystick* joy = SDL_GameControllerGetJoystick(s_active_controller);
+        if (joy) {
+            SDL_JoystickRumble(joy, left_u16, right_u16, 50);
+        }
+    }
+    if (s_active_haptic) {
+        if (max_intensity > 0.01f) {
+            SDL_HapticRumblePlay(s_active_haptic, max_intensity, 50);
+        } else {
+            SDL_HapticRumbleStop(s_active_haptic);
+        }
+    }
+
+    // Direct JNI fallback to SDLControllerManager.hapticRun(999999, intensity, 50)
+    // 999999 is deviceId_VIBRATOR_SERVICE in SDLControllerManager.java, commanding the RP5 system haptic vibrator
+    if (max_intensity > 0.01f) {
+        JNIEnv* env = reinterpret_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+        if (env) {
+            static jclass s_mgr_class = nullptr;
+            static jmethodID s_haptic_run_mid = nullptr;
+            if (!s_mgr_class) {
+                jclass local = env->FindClass("org/libsdl/app/SDLControllerManager");
+                if (local) {
+                    s_mgr_class = reinterpret_cast<jclass>(env->NewGlobalRef(local));
+                    env->DeleteLocalRef(local);
+                    s_haptic_run_mid = env->GetStaticMethodID(s_mgr_class, "hapticRun", "(IFI)V");
+                }
+            }
+            if (s_mgr_class && s_haptic_run_mid) {
+                env->CallStaticVoidMethod(s_mgr_class, s_haptic_run_mid, 999999, max_intensity, 50);
+                if (env->ExceptionCheck()) env->ExceptionClear();
+            }
+        }
+    }
+
+    static int s_log_haptic_interval = 0;
+    if (max_intensity > 0.05f && ++s_log_haptic_interval % 60 == 1) {
+        LOGI("Haptic vibration active: L=%.2f R=%.2f max=%.2f", left_motor, right_motor, max_intensity);
+    }
+}
 
 static int s_pfd[2];
 static pthread_t s_log_thr;
@@ -106,6 +161,16 @@ public:
                  start.scene_owner_fault_reason.c_str(),
                  start.gate_waits);
         }
+
+        // Controller Vibration / Force Feedback haptic feedback
+        const auto& car_data = context_.event_function36.car_select.car_799d18;
+        if (!car_data.empty()) {
+            outrun::driving::Bytes car(const_cast<std::uint8_t*>(car_data.data()), car_data.size());
+            outrun::enhancements::VibrationState vib{};
+            outrun::enhancements::update_car_vibration(car, vib, 1.0f);
+            trigger_android_haptics(vib.left_motor, vib.right_motor);
+        }
+
         return true;
     }
     bool frontend_animation_complete() const override { return outrun::ps5_runtime::ps5_renderer_stats(r_).frontend_animation_complete; }
@@ -164,7 +229,7 @@ extern "C" int SDL_main(int argc, char* argv[]) {
     rt::home() = find_game_directory();
     LOGI("Application home set to: %s", rt::home().c_str());
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC) < 0) {
         LOGE("Failed to initialize SDL: %s", SDL_GetError());
         return 1;
     }
@@ -203,8 +268,28 @@ extern "C" int SDL_main(int argc, char* argv[]) {
             controller = SDL_GameControllerOpen(i);
             if (controller) {
                 LOGI("Connected GameController: %s", SDL_GameControllerName(controller));
+                s_active_controller = controller;
                 break;
             }
+        }
+    }
+
+    if (s_active_controller && !s_active_haptic) {
+        SDL_Joystick* joy = SDL_GameControllerGetJoystick(s_active_controller);
+        if (joy) {
+            s_active_haptic = SDL_HapticOpenFromJoystick(joy);
+        }
+    }
+    if (!s_active_haptic && SDL_NumHaptics() > 0) {
+        s_active_haptic = SDL_HapticOpen(0);
+    }
+    if (s_active_haptic) {
+        if (SDL_HapticRumbleInit(s_active_haptic) < 0) {
+            LOGI("SDL_HapticRumbleInit not supported: %s", SDL_GetError());
+            SDL_HapticClose(s_active_haptic);
+            s_active_haptic = nullptr;
+        } else {
+            LOGI("Initialized SDL Haptic device: %s", SDL_HapticName(SDL_HapticIndex(s_active_haptic)));
         }
     }
 
@@ -233,6 +318,16 @@ extern "C" int SDL_main(int argc, char* argv[]) {
                     controller = SDL_GameControllerOpen(i);
                     if (controller) {
                         LOGI("Dynamically connected GameController: %s", SDL_GameControllerName(controller));
+                        s_active_controller = controller;
+                        if (!s_active_haptic) {
+                            SDL_Joystick* joy = SDL_GameControllerGetJoystick(s_active_controller);
+                            if (joy) s_active_haptic = SDL_HapticOpenFromJoystick(joy);
+                            if (!s_active_haptic && SDL_NumHaptics() > 0) s_active_haptic = SDL_HapticOpen(0);
+                            if (s_active_haptic && SDL_HapticRumbleInit(s_active_haptic) < 0) {
+                                SDL_HapticClose(s_active_haptic);
+                                s_active_haptic = nullptr;
+                            }
+                        }
                         break;
                     }
                 }
@@ -404,6 +499,10 @@ extern "C" int SDL_main(int argc, char* argv[]) {
     audio.close();
     diag.audio_output = nullptr;
 
+    if (s_active_haptic) {
+        SDL_HapticClose(s_active_haptic);
+        s_active_haptic = nullptr;
+    }
     if (controller) {
         SDL_GameControllerClose(controller);
     }

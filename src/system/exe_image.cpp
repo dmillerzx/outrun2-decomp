@@ -91,6 +91,15 @@ void exe_image_patch(std::uint32_t va, const void* data, std::size_t size) {
     if(!exe_image_loaded()&&!exe_image_autoload())throw std::runtime_error("OR2006C2C.EXE image not loaded for patch");
     if(va<ExeImageBase||va-ExeImageBase>ExeImageSize||size>ExeImageSize-(va-ExeImageBase))return;
     std::memcpy(image_storage().data()+(va-ExeImageBase),data,size);
+    for(const auto& c:copies()){
+        if(va>=c.va && va+size<=c.va+c.size){
+            std::memcpy(c.destination+(va-c.va),data,size);
+        } else if(va < c.va+c.size && va+size > c.va){
+            std::uint32_t start = std::max(va, c.va);
+            std::uint32_t end = std::min(va + static_cast<std::uint32_t>(size), c.va + c.size);
+            std::memcpy(c.destination + (start - c.va), static_cast<const std::uint8_t*>(data) + (start - va), end - start);
+        }
+    }
 }
 void exe_image_patch_u8(std::uint32_t va, std::uint8_t value) {
     exe_image_patch(va,&value,1);

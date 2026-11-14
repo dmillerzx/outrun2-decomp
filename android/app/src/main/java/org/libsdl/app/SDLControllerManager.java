@@ -55,6 +55,11 @@ public class SDLControllerManager
             } else {
                 mHapticHandler = new SDLHapticHandler();
             }
+            try {
+                mHapticHandler.pollHapticDevices();
+            } catch (Throwable t) {
+                // ignore
+            }
         }
     }
 
@@ -81,7 +86,32 @@ public class SDLControllerManager
      * This method is called by SDL using JNI.
      */
     public static void hapticRun(int device_id, float intensity, int length) {
-        mHapticHandler.run(device_id, intensity, length);
+        if (mHapticHandler != null) {
+            mHapticHandler.run(device_id, intensity, length);
+        }
+        // Direct Retroid / Android system vibrator actuation
+        if (device_id == 999999 || device_id == -1) {
+            try {
+                Context ctx = SDL.getContext();
+                if (ctx != null) {
+                    Vibrator vib = (Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
+                    if (vib != null && vib.hasVibrator()) {
+                        if (intensity <= 0.0f) {
+                            vib.cancel();
+                            return;
+                        }
+                        int vibeValue = Math.min(255, Math.max(1, Math.round(intensity * 255)));
+                        if (Build.VERSION.SDK_INT >= 26) {
+                            vib.vibrate(VibrationEffect.createOneShot(length, vibeValue));
+                        } else {
+                            vib.vibrate(length);
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                // ignore
+            }
+        }
     }
 
     /**
@@ -474,6 +504,14 @@ class SDLHapticHandler_API26 extends SDLHapticHandler {
     @Override
     public void run(int device_id, float intensity, int length) {
         SDLHaptic haptic = getHaptic(device_id);
+        if (haptic == null) {
+            try {
+                pollHapticDevices();
+            } catch (Throwable t) {
+                // ignore
+            }
+            haptic = getHaptic(device_id);
+        }
         if (haptic != null) {
             Log.d("SDL", "Rtest: Vibe with intensity " + intensity + " for " + length);
             if (intensity == 0.0f) {

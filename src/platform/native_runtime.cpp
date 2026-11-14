@@ -3737,11 +3737,11 @@ std::uint32_t native_scene_owner_service(NativeRuntimeContext& context,std::uint
         std::uint32_t index;
         if(a[0]==0u){
             if(context.mode_state.current==3u)index=12u;
-            else if(!console)index=11u;
+            else if(!console)index=12u;
             else{if(pick>=6u||!exe_view().u32(0x6549b0u+list[pick]*4u,index))return fault(pc);}
         }else if(!console){
             index=context.mode_state.current==3u?8u:
-                (variant==1u||variant==3u||variant==4u||variant==5u)?9u:6u;
+                (variant==1u||variant==3u||variant==4u||variant==5u)?10u:7u;
         }else{
             if(pick>=6u)return fault(pc);
             const std::uint32_t k=list[pick];

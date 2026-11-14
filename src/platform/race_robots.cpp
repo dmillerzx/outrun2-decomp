@@ -3,6 +3,7 @@
 #include "platform/race_translated.hpp"
 #include "driving/pc_matrix_stack.hpp"
 #include "driving/pc_x87.hpp"
+#include "system/exe_image.hpp"
 #include <array>
 #include <cmath>
 #include <cstdlib>
@@ -10,7 +11,9 @@
 #include <memory>
 #include <stdexcept>
 namespace outrun::platform {
-PcRaceRobotState::PcRaceRobotState():data(RaceRobotsDataImage,RaceRobotsDataImage+(DataEnd-DataBase)){}
+PcRaceRobotState::PcRaceRobotState():data(
+    exe_image_loaded()?exe_image_bytes(DataBase,DataEnd-DataBase):RaceRobotsDataImage,
+    (exe_image_loaded()?exe_image_bytes(DataBase,DataEnd-DataBase):RaceRobotsDataImage)+(DataEnd-DataBase)){}
 void race_robots_map_tables(PcRaceMemory& m){
     for(const auto& t:RaceRobotTables)m.map_const(t.base,t.data,t.size);
 }
@@ -200,7 +203,7 @@ std::uint32_t race_robot_set_chara_487c30(PcRaceContext& c,std::uint32_t work,st
 std::uint32_t race_robot_driver_chara_487ee0(PcRaceContext& c){
     Port p(c);auto& m=p.m;
     if(m.u32(0x78026cu)==3u)return 0xc;
-    if((p.call(0x43f860u,{})&0xffu)==0u)return 0xb;
+    if((p.call(0x43f860u,{})&0xffu)==0u)return 0xc;
     // [esp + [7C2400]*4] over the stack list {0,1,2,4,3,5}.
     const std::uint32_t i=m.u32(0x7c2400u);
     static constexpr std::uint32_t list[6]={0,1,2,4,3,5};
@@ -847,7 +850,7 @@ struct Passenger : Port {
         }
         if(m.u32(0x78026cu)==3u)return 8;
         const std::uint32_t v=m.u32(0x780258u);
-        return v==1u||v==3u||v==4u||v==5u?9u:6u;
+        return v==1u||v==3u||v==4u||v==5u?10u:7u;
     }
     void init_4885a0(std::uint32_t work){
         const std::uint32_t car=this->car();

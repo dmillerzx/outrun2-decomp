@@ -11,6 +11,7 @@
 #include <strings.h>
 #endif
 #include "system/files.hpp"
+#include "system/exe_image.hpp"
 
 namespace outrun::platform {
 namespace {
@@ -36,7 +37,19 @@ constexpr ResourcePath Fixed[] = {
  {0x3C,9,"Sprite/spr_sprani_efct_flor_xst.sz",false},
  {0xBA,8,"Common/obj_vshadow_pmt.sz",false},{0x57,8,"Common/obj_course_obj_common_pmt.sz",false},
  {0x1EF,8,"Common/obj_course_obj_gates_pmt.sz",false},{0xBB,8,"Common/obj_pc_color_pmt.sz",false},
- {0xBE,8,"CHR/obj_chr_dr_m00_pmt.sz",false},{LoaderAssetMotionTableId,0,"Common/motdata_table.bin",false},
+ {0xBE,8,"CHR/obj_chr_dr_m00_pmt.sz",false},{0xBF,8,"CHR/obj_chr_dr_l00_pmt.sz",false},
+ {0xC0,8,"CHR/obj_chr_aut01_pmt.sz",false},{0xC1,8,"CHR/obj_chr_aut02_pmt.sz",false},
+ {0xC2,8,"CHR/obj_chr_aut03_pmt.sz",false},{0xC3,8,"CHR/obj_chr_aut04_pmt.sz",false},
+ {0xC4,8,"CHR/obj_chr_dr_g00_pmt.sz",false},{0xC5,8,"CHR/obj_chr_dr_mh00_pmt.sz",false},
+ {0xC6,8,"CHR/obj_chr_dr_lh00_pmt.sz",false},{0xC7,8,"CHR/obj_chr_dr_gh00_pmt.sz",false},
+ {0xC9,8,"DRIVER/obj_driver_galusa_pmt.sz",false},{0xCA,8,"CHR/obj_chr_dr_g00_usa_pmt.sz",false},
+ {0xCB,8,"CHR/obj_chr_dr_gh00_usa_pmt.sz",false},{0xCC,8,"CHR/obj_chr_mal_pmt.sz",false},
+ {0xCD,8,"CHR/obj_chr_fal_pmt.sz",false},{0xCE,8,"CHR/obj_chr_gal_pmt.sz",false},
+ {0xCF,8,"CHR/obj_chr_gal_usa_pmt.sz",false},{0xD0,8,"OBJ/obj_end_property_pmt.sz",false},
+ {0x12B,8,"CHR/obj_chr_aut04_cvt_pmt.sz",false},{0x12B,9,"CHR/obj_chr_aut04_cvt_pmt.sz",false},
+ {0x1EB,8,"CHR/obj_chr_dr_w00_pmt.sz",false},{0x1EC,8,"CHR/obj_chr_dr_s00_pmt.sz",false},
+ {0x1ED,8,"CHR/obj_chr_dr_h00_pmt.sz",false},
+ {LoaderAssetMotionTableId,0,"Common/motdata_table.bin",false},
  {LoaderAssetBoneTableId,0,"Common/bone.bin",false},{LoaderAssetMotionGroup6Id,0,"Anims/mot_driver_bin.sz",true},
  {LoaderAssetMotionGroup32Id,0,"Anims/mot_OR2SP_DRIVER_bin.sz",true},
  {0xBC,8,"DRIVER/obj_driver_rival_pmt.sz",false},{0xC8,8,"DRIVER/obj_driver_special_pmt.sz",false},
@@ -221,6 +234,19 @@ const LoaderAssetRecord* retail_asset_lookup(RetailAssetStore& store,
                 // 633558 PMT path, its own ownership key.
                 for(std::size_t i=0;i<VehicleResourceIds.size();++i)
                     if(VehicleResourceIds[i]==resource_id){relative=VehicleResourcePaths[i];break;}
+            }
+            if(relative.empty()&&resource_id<0x223u&&exe_image_loaded()){
+                const auto ptr=exe_image_u32(0x00633558u+resource_id*4u);
+                if(ptr){
+                    const auto* raw=reinterpret_cast<const char*>(exe_image_bytes(ptr,1));
+                    if(raw&&*raw){
+                        for(std::uint32_t off=0;off<256u;++off){
+                            const char ch=static_cast<char>(exe_image_bytes(ptr+off,1)[0]);
+                            if(!ch)break;
+                            relative.push_back(ch);
+                        }
+                    }
+                }
             }
             if(relative.empty())return nullptr;
         }
