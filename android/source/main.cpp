@@ -7,6 +7,7 @@
 #include <vector>
 #include <memory>
 #include <chrono>
+#include <thread>
 #include <unistd.h>
 #include <pthread.h>
 
@@ -70,6 +71,15 @@ public:
     bool set_movie_frame(const std::uint8_t* rgba, std::uint32_t w, std::uint32_t h) override { return outrun::ps5_runtime::ps5_renderer_set_movie_frame(r_, rgba, w, h); }
     bool set_pc_scene(std::function<void(outrun::platform::PcD3D9Device&)> scene) override { return outrun::ps5_runtime::ps5_renderer_set_pc_scene(r_, std::move(scene)); }
     bool draw() override {
+        // Enforce 60.0 Hz frame pacing (16.666 ms per frame) to prevent game logic fast-forward
+        using clock = std::chrono::steady_clock;
+        static auto target_time = clock::now();
+        const auto now = clock::now();
+        if (now < target_time) {
+            std::this_thread::sleep_for(target_time - now);
+        }
+        target_time = std::max(clock::now(), target_time + std::chrono::nanoseconds(16666667));
+
         const auto result = outrun::ps5_runtime::ps5_renderer_draw(r_);
         if (++draw_count_ % 120 == 0 || !result) {
             const auto stats = outrun::ps5_runtime::ps5_renderer_stats(r_);

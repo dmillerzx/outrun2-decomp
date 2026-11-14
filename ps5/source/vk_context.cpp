@@ -798,12 +798,6 @@ void Context::setup_display(unsigned width,unsigned height){
     std::vector<VkPresentModeKHR> pmodes(pm_count);
     require(vkGetPhysicalDeviceSurfacePresentModesKHR(physical_, surface_, &pm_count, pmodes.data()), "Get surface present modes");
     VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
-    for (auto pm : pmodes) {
-        if (pm == VK_PRESENT_MODE_MAILBOX_KHR) {
-            presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
-            break;
-        }
-    }
 
     std::fprintf(stdout,"[vk-android] caps extent=%ux%u currentTransform=%x supported=%x preTransform=%x swapchain=%ux%u presentMode=%d\n",
         caps.currentExtent.width,caps.currentExtent.height,
