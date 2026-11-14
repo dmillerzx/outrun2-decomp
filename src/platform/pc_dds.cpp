@@ -61,13 +61,19 @@ bool pc_d3dx_texture_from_file(const PcTextureFileRequest& q,PcDdsTexture& t,std
     const std::uint32_t pf_flags=le32(h+76),fourcc=le32(h+80),bits=le32(h+84);
     const std::uint32_t rmask=le32(h+88),gmask=le32(h+92),bmask=le32(h+96),amask=le32(h+100);
     const std::uint32_t caps2=le32(h+108);
+    bool is_bgra = false;
     if(pf_flags&4u){
         if(fourcc==0x31545844u)t.format=PcDdsTexture::Format::bc1;
         else if(fourcc==0x33545844u)t.format=PcDdsTexture::Format::bc2;
         else if(fourcc==0x35545844u)t.format=PcDdsTexture::Format::bc3;
         else{error="unsupported DDS FourCC";return false;}
-    }else if(bits==32&&rmask==0xff0000u&&gmask==0xff00u&&bmask==0xffu)t.format=PcDdsTexture::Format::rgba8;
-    else{error="unsupported DDS pixel format";return false;}
+    }else if(bits==32&&rmask==0xff0000u&&gmask==0xff00u&&bmask==0xffu){
+        t.format=PcDdsTexture::Format::rgba8;
+        is_bgra = true;
+    }else if(bits==32&&rmask==0xffu&&gmask==0xff00u&&bmask==0xff0000u){
+        t.format=PcDdsTexture::Format::rgba8;
+        is_bgra = false;
+    }else{error="unsupported DDS pixel format";return false;}
     const bool has_alpha=(pf_flags&1u)!=0&&amask==0xff000000u;
     t.cube=q.cube;
     if(t.cube!=(caps2!=0u)){error="DDS cube flag differs from the request";return false;}
@@ -85,8 +91,15 @@ bool pc_d3dx_texture_from_file(const PcTextureFileRequest& q,PcDdsTexture& t,std
             if(at+n>q.size){error="DDS file shorter than its levels";return false;}
             if(l<wanted){
                 PcDdsTexture::Level lv{w,hh,std::vector<std::uint8_t>(q.data+at,q.data+at+n)};
-                if(t.format==PcDdsTexture::Format::rgba8)for(std::size_t k=0;k<lv.data.size();k+=4){ // B,G,R,A -> R,G,B,A
-                    std::swap(lv.data[k],lv.data[k+2]);if(!has_alpha)lv.data[k+3]=255;}
+                if(t.format==PcDdsTexture::Format::rgba8){
+                    if(is_bgra){
+                        for(std::size_t k=0;k<lv.data.size();k+=4){ // B,G,R,A -> R,G,B,A
+                            std::swap(lv.data[k],lv.data[k+2]);if(!has_alpha)lv.data[k+3]=255;
+                        }
+                    } else if(!has_alpha){
+                        for(std::size_t k=0;k<lv.data.size();k+=4) lv.data[k+3]=255;
+                    }
+                }
                 t.faces[f].push_back(std::move(lv));
             }
             at+=n;w=std::max(1u,w/2);hh=std::max(1u,hh/2);

@@ -83,10 +83,14 @@ public:
         auto result = outrun::ps5_runtime::ps5_renderer_draw(r_);
         if (!result) {
             const auto err = outrun::ps5_runtime::ps5_renderer_pc_error(r_);
-            LOGI("[Presenter::draw] draw attempt 1 failed: %s; retrying...", err.c_str());
-            result = outrun::ps5_runtime::ps5_renderer_draw(r_);
+            if (++draw_count_ % 120 == 0) {
+                LOGI("[Presenter::draw] transient surface/swapchain unavailable (%s); maintaining host simulation", err.c_str());
+            }
+            // On mobile Android, sleep/wake and shade transitions destroy ANativeWindow.
+            // Never return false to game_host, which permanently latches render_failed=true.
+            return true;
         }
-        if (++draw_count_ % 120 == 0 || !result) {
+        if (++draw_count_ % 120 == 0) {
             const auto stats = outrun::ps5_runtime::ps5_renderer_stats(r_);
             const auto& start = context_.start_mode;
             LOGI("[Presenter::draw] res=%d frame=%u stats: f=%u l=%u fe=%u | mode=%u start_act=%d stage=%u own_stg=%u miss=0x%x own_miss=0x%x fault=0x%x ('%s') waits=%u",
@@ -102,7 +106,7 @@ public:
                  start.scene_owner_fault_reason.c_str(),
                  start.gate_waits);
         }
-        return result;
+        return true;
     }
     bool frontend_animation_complete() const override { return outrun::ps5_runtime::ps5_renderer_stats(r_).frontend_animation_complete; }
     void scene_to_frame() override { outrun::ps5_runtime::ps5_renderer_scene_to_frame(r_); }
@@ -218,45 +222,85 @@ extern "C" int SDL_main(int argc, char* argv[]) {
     };
 
     static std::uint64_t last_held = 0;
-    diag.read_pad = [controller] {
+    diag.read_pad = [&controller] {
         SDL_PumpEvents();
         rt::PadSnapshot p{};
-        if (!controller) {
-            p.connected = false;
-            return p;
-        }
-        p.connected = true;
 
-        // Stick reading with Hall Effect deadzone (Law 8: 10% deadband standard)
-        auto apply_deadzone = [](int16_t v, int16_t deadzone) -> int16_t {
-            if (std::abs(v) < deadzone) return 0;
-            return v;
-        };
-        constexpr int16_t kDeadzone10Pct = 3276;
-        p.left.x = apply_deadzone(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX), kDeadzone10Pct);
-        p.left.y = apply_deadzone(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY), kDeadzone10Pct);
-        p.right.x = apply_deadzone(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTX), kDeadzone10Pct);
-        p.right.y = apply_deadzone(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTY), kDeadzone10Pct);
+        // Dynamic controller re-detection if disconnected or initialized late
+        if (!controller) {
+            for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+                if (SDL_IsGameController(i)) {
+                    controller = SDL_GameControllerOpen(i);
+                    if (controller) {
+                        LOGI("Dynamically connected GameController: %s", SDL_GameControllerName(controller));
+                        break;
+                    }
+                }
+            }
+        }
 
         std::uint64_t held = 0;
-        if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_A)) held |= rt::PadA;
-        if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_B)) held |= rt::PadB;
-        if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_X)) held |= rt::PadX;
-        if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_Y)) held |= rt::PadY;
-        if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) held |= rt::PadL;
-        if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) held |= rt::PadR;
-        if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_START)) held |= rt::PadPlus;
-        if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_BACK)) held |= rt::PadMinus;
-        if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_UP)) held |= rt::PadUp;
-        if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) held |= rt::PadDown;
-        if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) held |= rt::PadLeft;
-        if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) held |= rt::PadRight;
 
-        // Analog triggers with full pedal check fix (FixFullPedalChecks: 100% saturation)
-        int16_t trig_l = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT);
-        int16_t trig_r = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
-        if (trig_l > 8000) held |= rt::PadZL;
-        if (trig_r > 8000) held |= rt::PadZR;
+        if (controller) {
+            p.connected = true;
+
+            // Stick reading with Hall Effect deadzone (Law 8: 10% deadband standard)
+            auto apply_deadzone = [](int16_t v, int16_t deadzone) -> int16_t {
+                if (std::abs(v) < deadzone) return 0;
+                return v;
+            };
+            constexpr int16_t kDeadzone10Pct = 3276;
+            p.left.x = apply_deadzone(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX), kDeadzone10Pct);
+            p.left.y = apply_deadzone(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY), kDeadzone10Pct);
+            p.right.x = apply_deadzone(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTX), kDeadzone10Pct);
+            p.right.y = apply_deadzone(SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTY), kDeadzone10Pct);
+
+            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_A)) held |= rt::PadA;
+            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_B)) held |= rt::PadB;
+            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_X)) held |= rt::PadX;
+            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_Y)) held |= rt::PadY;
+            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) held |= rt::PadL;
+            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) held |= rt::PadR;
+            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_START)) held |= rt::PadPlus;
+            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_BACK)) held |= rt::PadMinus;
+            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_UP)) held |= rt::PadUp;
+            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) held |= rt::PadDown;
+            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT)) held |= rt::PadLeft;
+            if (SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) held |= rt::PadRight;
+
+            // Analog triggers with full pedal check fix (FixFullPedalChecks: 100% saturation)
+            int16_t trig_l = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT);
+            int16_t trig_r = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
+            if (trig_l > 8000) held |= rt::PadZL;
+            if (trig_r > 8000) held |= rt::PadZR;
+        }
+
+        // Keyboard & synthetic ADB keyevent fallback with event polling
+        static std::uint64_t latched_keys = 0;
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_KEYDOWN) {
+                auto sc = ev.key.keysym.scancode;
+                if (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_SPACE) latched_keys |= rt::PadPlus;
+                if (sc == SDL_SCANCODE_ESCAPE || sc == SDL_SCANCODE_BACKSPACE) latched_keys |= rt::PadMinus;
+                if (sc == SDL_SCANCODE_Z || sc == SDL_SCANCODE_C) latched_keys |= rt::PadA;
+                if (sc == SDL_SCANCODE_X || sc == SDL_SCANCODE_V) latched_keys |= rt::PadB;
+                if (sc == SDL_SCANCODE_A) latched_keys |= rt::PadX;
+                if (sc == SDL_SCANCODE_S) latched_keys |= rt::PadY;
+                if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_W) latched_keys |= rt::PadUp;
+                if (sc == SDL_SCANCODE_DOWN) latched_keys |= rt::PadDown;
+                if (sc == SDL_SCANCODE_LEFT) latched_keys |= rt::PadLeft;
+                if (sc == SDL_SCANCODE_RIGHT) latched_keys |= rt::PadRight;
+                if (sc == SDL_SCANCODE_Q || sc == SDL_SCANCODE_LSHIFT) latched_keys |= rt::PadL;
+                if (sc == SDL_SCANCODE_E || sc == SDL_SCANCODE_RSHIFT) latched_keys |= rt::PadR;
+                LOGI("Drained SDL_KEYDOWN: scancode=%d latched=0x%llx", (int)sc, (unsigned long long)latched_keys);
+            }
+        }
+        if (latched_keys) {
+            p.connected = true;
+            held |= latched_keys;
+            latched_keys = 0;
+        }
 
         p.held = held;
         p.down = held & ~last_held;

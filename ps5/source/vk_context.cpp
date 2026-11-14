@@ -717,10 +717,16 @@ void Context::submit(){
         // fence (waited before the slot records again) bounds frames in flight.
         const VkResult pres = vkQueuePresentKHR(queue_,&p);
 #if defined(__ANDROID__) || defined(ANDROID)
-        if(pres == VK_ERROR_OUT_OF_DATE_KHR){
+        if(pres == VK_ERROR_OUT_OF_DATE_KHR || pres == VK_ERROR_SURFACE_LOST_KHR){
             swapchain_dirty_ = true;
+            if(pres == VK_ERROR_SURFACE_LOST_KHR && surface_ != VK_NULL_HANDLE){
+                std::fprintf(stdout, "[vk-present] surface lost during present, destroying surface\n");
+                vkDestroySurfaceKHR(instance_, surface_, nullptr);
+                surface_ = VK_NULL_HANDLE;
+            }
         }else if(pres != VK_SUCCESS && pres != VK_SUBOPTIMAL_KHR){
-            require(pres,"Present Vulkan frame");
+            std::fprintf(stderr, "[vk-present] warning: present failed: %d\n", int(pres));
+            swapchain_dirty_ = true;
         }
 #else
         if(pres != VK_SUCCESS && pres != VK_SUBOPTIMAL_KHR){
@@ -891,7 +897,7 @@ void Context::setup_display(unsigned width,unsigned height){
 
 void Context::recreate_swapchain(){
 #if defined(__ANDROID__) || defined(ANDROID)
-    if(device_ == VK_NULL_HANDLE || surface_ == VK_NULL_HANDLE) return;
+    if(device_ == VK_NULL_HANDLE) return;
     vkDeviceWaitIdle(device_);
     for(auto s : rendered_){
         if(s != VK_NULL_HANDLE) vkDestroySemaphore(device_, s, nullptr);
@@ -900,7 +906,40 @@ void Context::recreate_swapchain(){
     swap_images_.clear();
 
     VkSurfaceCapabilitiesKHR caps{};
-    if(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &caps) != VK_SUCCESS) return;
+    VkResult cap_res = (surface_ != VK_NULL_HANDLE) ? vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &caps) : VK_ERROR_SURFACE_LOST_KHR;
+
+    bool surface_recreated = false;
+    if(cap_res == VK_ERROR_SURFACE_LOST_KHR || surface_ == VK_NULL_HANDLE){
+        std::fprintf(stdout, "[vk-android] surface lost (%d), recreating VkSurfaceKHR...\n", int(cap_res));
+        if(swapchain_ != VK_NULL_HANDLE){
+            vkDestroySwapchainKHR(device_, swapchain_, nullptr);
+            swapchain_ = VK_NULL_HANDLE;
+        }
+        if(surface_ != VK_NULL_HANDLE){
+            vkDestroySurfaceKHR(instance_, surface_, nullptr);
+            surface_ = VK_NULL_HANDLE;
+        }
+        if(!g_android_window || !SDL_Vulkan_CreateSurface(g_android_window, instance_, &surface_)){
+            std::fprintf(stderr, "[vk-android] SDL_Vulkan_CreateSurface failed during recreation: %s\n", SDL_GetError());
+            return;
+        }
+        surface_recreated = true;
+        cap_res = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &caps);
+        if(cap_res != VK_SUCCESS){
+            std::fprintf(stderr, "[vk-android] vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed after surface recreation: %d\n", int(cap_res));
+            vkDestroySurfaceKHR(instance_, surface_, nullptr);
+            surface_ = VK_NULL_HANDLE;
+            return;
+        }
+    } else if(cap_res != VK_SUCCESS){
+        std::fprintf(stderr, "[vk-android] vkGetPhysicalDeviceSurfaceCapabilitiesKHR error: %d\n", int(cap_res));
+        if(surface_ != VK_NULL_HANDLE){
+            vkDestroySurfaceKHR(instance_, surface_, nullptr);
+            surface_ = VK_NULL_HANDLE;
+        }
+        return;
+    }
+
     display_width_ = caps.currentExtent.width != 0xFFFFFFFF ? caps.currentExtent.width : 1920u;
     display_height_ = caps.currentExtent.height != 0xFFFFFFFF ? caps.currentExtent.height : 1080u;
 
@@ -926,16 +965,29 @@ void Context::recreate_swapchain(){
         VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR : VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     swap.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     swap.clipped = VK_TRUE;
-    swap.oldSwapchain = swapchain_;
+    swap.oldSwapchain = surface_recreated ? VK_NULL_HANDLE : swapchain_;
 
     VkSwapchainKHR new_swapchain = VK_NULL_HANDLE;
     VkResult res = vkCreateSwapchainKHR(device_, &swap, nullptr, &new_swapchain);
     if(swapchain_ != VK_NULL_HANDLE){
         vkDestroySwapchainKHR(device_, swapchain_, nullptr);
+        swapchain_ = VK_NULL_HANDLE;
     }
     if(res != VK_SUCCESS){
         std::fprintf(stderr, "[vk-android] recreate_swapchain failed: %d\n", int(res));
+        if(new_swapchain != VK_NULL_HANDLE){
+            vkDestroySwapchainKHR(device_, new_swapchain, nullptr);
+            new_swapchain = VK_NULL_HANDLE;
+        }
         swapchain_ = VK_NULL_HANDLE;
+        if(surface_ != VK_NULL_HANDLE){
+            vkDestroySurfaceKHR(instance_, surface_, nullptr);
+            surface_ = VK_NULL_HANDLE;
+        }
+        if(!surface_recreated && (res == VK_ERROR_SURFACE_LOST_KHR || res == VK_ERROR_INITIALIZATION_FAILED || res == VK_ERROR_NATIVE_WINDOW_IN_USE_KHR)){
+            std::fprintf(stdout, "[vk-android] Swapchain create failed (%d); retrying with fresh VkSurfaceKHR...\n", int(res));
+            recreate_swapchain();
+        }
         return;
     }
     swapchain_ = new_swapchain;
@@ -959,7 +1011,7 @@ void Context::recreate_swapchain(){
     rendered_.resize(swap_images_.size());
     for(auto& s : rendered_) vkCreateSemaphore(device_, &semaphore, nullptr, &s);
     swapchain_dirty_ = false;
-    std::fprintf(stdout, "[vk-android] successfully recreated swapchain: %ux%u images=%u\n", display_width_, display_height_, count);
+    std::fprintf(stdout, "[vk-android] successfully recreated swapchain: %ux%u images=%u (surface_recreated=%d)\n", display_width_, display_height_, count, int(surface_recreated));
 #endif
 }
 
@@ -973,14 +1025,23 @@ Texture Context::display_target(){
         if(swapchain_dirty_ || swapchain_ == VK_NULL_HANDLE){
             recreate_swapchain();
         }
-        VkResult ares = vkAcquireNextImageKHR(device_,swapchain_,std::numeric_limits<std::uint64_t>::max(),frames_[frame_].acquired,VK_NULL_HANDLE,&swap_index_);
-        if(ares == VK_ERROR_OUT_OF_DATE_KHR){
-            std::fprintf(stdout,"[vk-acquire] swapchain out of date (%d), recreating...\n",int(ares));
+        VkResult ares = (swapchain_ != VK_NULL_HANDLE) ?
+            vkAcquireNextImageKHR(device_,swapchain_,std::numeric_limits<std::uint64_t>::max(),frames_[frame_].acquired,VK_NULL_HANDLE,&swap_index_) :
+            VK_ERROR_OUT_OF_DATE_KHR;
+        if(ares == VK_ERROR_OUT_OF_DATE_KHR || ares == VK_ERROR_SURFACE_LOST_KHR){
+            std::fprintf(stdout,"[vk-acquire] swapchain out of date/surface lost (%d), recreating...\n",int(ares));
+            if(ares == VK_ERROR_SURFACE_LOST_KHR && surface_ != VK_NULL_HANDLE){
+                vkDestroySurfaceKHR(instance_, surface_, nullptr);
+                surface_ = VK_NULL_HANDLE;
+            }
             recreate_swapchain();
-            ares = vkAcquireNextImageKHR(device_,swapchain_,std::numeric_limits<std::uint64_t>::max(),frames_[frame_].acquired,VK_NULL_HANDLE,&swap_index_);
+            if(swapchain_ != VK_NULL_HANDLE){
+                ares = vkAcquireNextImageKHR(device_,swapchain_,std::numeric_limits<std::uint64_t>::max(),frames_[frame_].acquired,VK_NULL_HANDLE,&swap_index_);
+            }
         }
         if(ares != VK_SUCCESS && ares != VK_SUBOPTIMAL_KHR){
             std::fprintf(stderr,"[vk-acquire] warning: acquire failed: %d\n",int(ares));
+            swapchain_dirty_ = true;
             if(!swap_images_.empty()){
                 swap_index_ = std::min(swap_index_, unsigned(swap_images_.size() - 1));
                 return swap_images_[swap_index_];
