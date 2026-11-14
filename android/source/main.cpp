@@ -39,15 +39,15 @@ static SDL_GameController* s_active_controller = nullptr;
 static SDL_Haptic* s_active_haptic = nullptr;
 
 static void trigger_android_haptics(float left_motor, float right_motor) {
-    const Uint16 left_u16 = static_cast<Uint16>(std::clamp(int(left_motor * 65535.0f), 0, 65535));
-    const Uint16 right_u16 = static_cast<Uint16>(std::clamp(int(right_motor * 65535.0f), 0, 65535));
     const float max_intensity = std::max(left_motor, right_motor);
+    const Uint16 left_u16 = (max_intensity > 0.01f) ? static_cast<Uint16>(std::clamp(int(left_motor * 65535.0f), 0, 65535)) : 0;
+    const Uint16 right_u16 = (max_intensity > 0.01f) ? static_cast<Uint16>(std::clamp(int(right_motor * 65535.0f), 0, 65535)) : 0;
 
     if (s_active_controller) {
-        SDL_GameControllerRumble(s_active_controller, left_u16, right_u16, 50);
+        SDL_GameControllerRumble(s_active_controller, left_u16, right_u16, max_intensity > 0.01f ? 50 : 0);
         SDL_Joystick* joy = SDL_GameControllerGetJoystick(s_active_controller);
         if (joy) {
-            SDL_JoystickRumble(joy, left_u16, right_u16, 50);
+            SDL_JoystickRumble(joy, left_u16, right_u16, max_intensity > 0.01f ? 50 : 0);
         }
     }
     if (s_active_haptic) {
@@ -58,25 +58,28 @@ static void trigger_android_haptics(float left_motor, float right_motor) {
         }
     }
 
-    // Direct JNI fallback to SDLControllerManager.hapticRun(999999, intensity, 50)
-    // 999999 is deviceId_VIBRATOR_SERVICE in SDLControllerManager.java, commanding the RP5 system haptic vibrator
-    if (max_intensity > 0.01f) {
-        JNIEnv* env = reinterpret_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
-        if (env) {
-            static jclass s_mgr_class = nullptr;
-            static jmethodID s_haptic_run_mid = nullptr;
-            if (!s_mgr_class) {
-                jclass local = env->FindClass("org/libsdl/app/SDLControllerManager");
-                if (local) {
-                    s_mgr_class = reinterpret_cast<jclass>(env->NewGlobalRef(local));
-                    env->DeleteLocalRef(local);
-                    s_haptic_run_mid = env->GetStaticMethodID(s_mgr_class, "hapticRun", "(IFI)V");
-                }
+    // Direct JNI actuation to SDLControllerManager
+    JNIEnv* env = reinterpret_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    if (env) {
+        static jclass s_mgr_class = nullptr;
+        static jmethodID s_haptic_run_mid = nullptr;
+        static jmethodID s_haptic_stop_mid = nullptr;
+        if (!s_mgr_class) {
+            jclass local = env->FindClass("org/libsdl/app/SDLControllerManager");
+            if (local) {
+                s_mgr_class = reinterpret_cast<jclass>(env->NewGlobalRef(local));
+                env->DeleteLocalRef(local);
+                s_haptic_run_mid = env->GetStaticMethodID(s_mgr_class, "hapticRun", "(IFI)V");
+                s_haptic_stop_mid = env->GetStaticMethodID(s_mgr_class, "hapticStop", "(I)V");
             }
-            if (s_mgr_class && s_haptic_run_mid) {
+        }
+        if (s_mgr_class) {
+            if (max_intensity > 0.01f && s_haptic_run_mid) {
                 env->CallStaticVoidMethod(s_mgr_class, s_haptic_run_mid, 999999, max_intensity, 50);
-                if (env->ExceptionCheck()) env->ExceptionClear();
+            } else if (s_haptic_stop_mid) {
+                env->CallStaticVoidMethod(s_mgr_class, s_haptic_stop_mid, 999999);
             }
+            if (env->ExceptionCheck()) env->ExceptionClear();
         }
     }
 
@@ -162,13 +165,22 @@ public:
                  start.gate_waits);
         }
 
-        // Controller Vibration / Force Feedback haptic feedback
-        const auto& car_data = context_.event_function36.car_select.car_799d18;
-        if (!car_data.empty()) {
-            outrun::driving::Bytes car(const_cast<std::uint8_t*>(car_data.data()), car_data.size());
-            outrun::enhancements::VibrationState vib{};
-            outrun::enhancements::update_car_vibration(car, vib, 1.0f);
-            trigger_android_haptics(vib.left_motor, vib.right_motor);
+        // Controller Vibration / Force Feedback haptic feedback:
+        // Strictly active only during live race modes (mode 16=Race, mode 18=Heart Attack/Course)
+        const bool in_race = (context_.mode_state.current == 16u || context_.mode_state.current == 18u);
+        if (in_race) {
+            const auto& car_data = context_.event_function36.car_select.car_799d18;
+            if (!car_data.empty()) {
+                outrun::driving::Bytes car(const_cast<std::uint8_t*>(car_data.data()), car_data.size());
+                outrun::enhancements::VibrationState vib{};
+                outrun::enhancements::update_car_vibration(car, vib, 1.0f);
+                trigger_android_haptics(vib.left_motor, vib.right_motor);
+            } else {
+                trigger_android_haptics(0.0f, 0.0f);
+            }
+        } else {
+            // Instantly silence all rumble whenever outside of active racing (menus, pause, attract)
+            trigger_android_haptics(0.0f, 0.0f);
         }
 
         return true;

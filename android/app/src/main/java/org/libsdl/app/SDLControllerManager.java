@@ -119,7 +119,20 @@ public class SDLControllerManager
      */
     public static void hapticStop(int device_id)
     {
-        mHapticHandler.stop(device_id);
+        if (mHapticHandler != null) {
+            mHapticHandler.stop(device_id);
+        }
+        try {
+            Context ctx = SDL.getContext();
+            if (ctx != null) {
+                Vibrator vib = (Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
+                if (vib != null) {
+                    vib.cancel();
+                }
+            }
+        } catch (Throwable t) {
+            // ignore
+        }
     }
 
     // Check if a given device is considered a possible SDL joystick

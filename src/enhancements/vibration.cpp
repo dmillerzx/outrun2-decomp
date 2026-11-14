@@ -45,17 +45,20 @@ float eval_surface_vibration(std::uint32_t surface_flags, bool is_in_air, bool& 
 } // namespace
 
 void update_car_vibration(const outrun::driving::Bytes& car, VibrationState& state, float strength) {
+    static int impact_sustain = 0;
+    static std::int32_t prev_gear = 0;
+    static float prev_speed = 0.0f;
+
     if (car.size() < 0x1000) {
+        impact_sustain = 0;
+        prev_speed = 0.0f;
+        prev_gear = 0;
         state.left_motor = 0.0f;
         state.right_motor = 0.0f;
         return;
     }
 
     const float speed = car.f32(0x1C4);
-
-    static int impact_sustain = 0;
-    static std::int32_t prev_gear = 0;
-    static float prev_speed = 0.0f;
 
     float left = 0.0f;
     float right = 0.0f;
@@ -109,32 +112,31 @@ void update_car_vibration(const outrun::driving::Bytes& car, VibrationState& sta
     }
 
     // 4. Vehicle Collision / Wall Impact / Rebound
-    const std::uint32_t flags4 = car.u32(0x4);
-    const std::uint32_t flags8 = car.u32(0x8);
+    const float impact_fb = (car.size() > 0xbd4) ? car.f32(0xbd0) : 0.0f;
+    const bool crash_seq = (car.size() > 0x2f4) && ((car.u32(0x2f0) & 3u) != 0u);
+    const bool wall_impact = (car.size() > 4) && ((car.u32(4) & 0x80800000u) != 0u);
     const float speed_drop = prev_speed - speed;
     prev_speed = speed;
 
-    const bool wall_impact = (flags4 & 0x10000) != 0;
-    const bool car_crash = (flags8 & 0x40) != 0;
-    const bool car_collision = (car.u32(0xDD4) != 0);
-
-    if (wall_impact || car_crash || car_collision || (speed_drop > 0.04f && speed > 0.01f)) {
-        left += 0.90f;
-        right += 0.60f;
-        impact_sustain = 14; // sustain heavy collision rumble for 14 frames
+    if (impact_fb > 0.05f || crash_seq || wall_impact || (speed_drop > 0.08f && speed > 0.03f)) {
+        left += std::max(0.60f, impact_fb);
+        right += 0.40f;
+        impact_sustain = 8; // sustain collision rumble for 8 frames (~130ms)
     }
 
-    // 5. Engine RPM Vibration (both revving while stopped and at speed)
-    const std::int16_t rpm = car.i16(0xD34);
-    if (rpm > 3500) {
-        const float rpm_ratio = std::clamp((rpm - 3500.0f) / 5500.0f, 0.0f, 1.0f);
-        right += 0.12f * rpm_ratio;
+    // 5. Engine RPM High-Frequency Buzz (at high revs / redline)
+    const std::int16_t rpm = (car.size() > 0xd36) ? car.i16(0xD34) : 0;
+    if (rpm > 5500) {
+        const float rpm_ratio = std::clamp((rpm - 5500.0f) / 3500.0f, 0.0f, 1.0f);
+        right += 0.08f * rpm_ratio;
     }
 
     // 6. Impact Sustain Decay
-    if (impact_sustain > 0) {
+    if (speed <= 0.001f && impact_fb <= 0.01f && !crash_seq) {
+        impact_sustain = 0;
+    } else if (impact_sustain > 0) {
         --impact_sustain;
-        left = std::max(left, 0.50f);
+        left = std::max(left, 0.40f);
     }
 
     // 7. Clamp and Apply Global Strength
