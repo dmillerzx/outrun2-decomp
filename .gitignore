@@ -44,6 +44,8 @@ retail-root.txt
 work/
 
 # Android build outputs & intermediate objects
+*.apk
+*.aab
 .gradle/
 android/.gradle/
 android/build/

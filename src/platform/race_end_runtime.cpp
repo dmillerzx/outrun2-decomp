@@ -2,6 +2,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <vector>
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
 #include "platform/bulk_fallback.hpp"
 #include "system/dev_hooks.hpp"
 #include "platform/race_end_runtime.hpp"
@@ -186,6 +189,9 @@ std::uint32_t record_insert_time(PcRaceMemory& m,std::uint32_t first,std::uint32
 // soft_fault: a display call (GAD_PUB): a service without a port is
 // returned there instead of latching the module.
 constexpr std::uint32_t RacerTableBase=0x5c000000u;      // 80FB20 records as mapped here
+constexpr std::uint32_t RacersBase=0x5d000000u;          // [80FB00] racer records (traffic / names)
+constexpr std::uint32_t Table1cBase=0x5d100000u;         // [80FB1C] table
+constexpr std::uint32_t Table30Base=0x5d300000u;         // [80FB30] table
 // 5802DD sprintf(out, format, ...) over the guest memory: the integer, character and
 // string conversions with their flags / width / precision (the formats the game's
 // screens use); a floating-point or other conversion is refused.
@@ -301,6 +307,9 @@ template<class F> bool run_end(NativeRuntimeContext& c,F&& body,driving::PcMatri
     // Racer ranking records (80FB20) and the names they point at (Races.bin,
     // EXE defaults).
     if(!c.mission.racers.table_80fb20.empty())m.map_const(RacerTableBase,c.mission.racers.table_80fb20.data(),c.mission.racers.table_80fb20.size());
+    if(!c.mission.racers.racers_80fb00.empty())m.map_const(RacersBase,c.mission.racers.racers_80fb00.data(),c.mission.racers.racers_80fb00.size());
+    if(!c.mission.racers.table_80fb1c.empty())m.map_const(Table1cBase,c.mission.racers.table_80fb1c.data(),c.mission.racers.table_80fb1c.size());
+    if(!c.mission.racers.table_80fb30.empty())m.map_const(Table30Base,c.mission.racers.table_80fb30.data(),c.mission.racers.table_80fb30.size());
     if(!c.mission.races_relocated.empty())m.map_const(NativeRacesBlobBase,c.mission.races_relocated.data(),c.mission.races_relocated.size());
     native_race_attack_map(c,m);   // variant 9: 686254.. and RaceAttack.bin (racer names)
     constexpr std::uint32_t Event36=0x5e000000u;           // [7B17E8] (4035F0)
@@ -1009,11 +1018,40 @@ template<class F> bool run_end(NativeRuntimeContext& c,F&& body,driving::PcMatri
     struct Back{RaceCameraOverride& o;const std::uint8_t* b;~Back(){override_out(o,b);}} back{c.race.camera_override,override_82e7c0.data()};
     if(soft_fault){
         try{body(ctx);return true;}
-        catch(const EndUnported& x){*soft_fault=x.pc;}
-        catch(const PcRaceUnmapped& x){*soft_fault=x.address;}
-        catch(const PcRaceEndUndefined& x){*soft_fault=x.pc;}
-        catch(const PcRaceEndUnreachable& x){*soft_fault=x.pc;}
-        catch(const std::exception&){*soft_fault=0x4998c0u;}
+        catch(const EndUnported& x){
+            *soft_fault=x.pc;
+#if defined(__ANDROID__)
+            __android_log_print(ANDROID_LOG_ERROR,"OutRun2","run_end soft_fault EndUnported at %08X: %s",x.pc,x.what());
+#else
+            std::fprintf(stderr,"run_end soft_fault EndUnported at %08X: %s\n",x.pc,x.what());
+#endif
+        }
+        catch(const PcRaceUnmapped& x){
+            *soft_fault=x.address;
+#if defined(__ANDROID__)
+            __android_log_print(ANDROID_LOG_ERROR,"OutRun2","run_end soft_fault PcRaceUnmapped at %08X: %s",x.address,x.what());
+#else
+            std::fprintf(stderr,"run_end soft_fault PcRaceUnmapped at %08X: %s\n",x.address,x.what());
+#endif
+        }
+        catch(const PcRaceEndUndefined& x){
+            *soft_fault=x.pc;
+#if defined(__ANDROID__)
+            __android_log_print(ANDROID_LOG_ERROR,"OutRun2","run_end soft_fault PcRaceEndUndefined at %08X",x.pc);
+#endif
+        }
+        catch(const PcRaceEndUnreachable& x){
+            *soft_fault=x.pc;
+#if defined(__ANDROID__)
+            __android_log_print(ANDROID_LOG_ERROR,"OutRun2","run_end soft_fault PcRaceEndUnreachable at %08X",x.pc);
+#endif
+        }
+        catch(const std::exception& x){
+            *soft_fault=0x4998c0u;
+#if defined(__ANDROID__)
+            __android_log_print(ANDROID_LOG_ERROR,"OutRun2","run_end soft_fault std::exception: %s",x.what());
+#endif
+        }
         return false;
     }
     try{body(ctx);return true;}

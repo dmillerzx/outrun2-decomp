@@ -1335,7 +1335,8 @@ void gad_rank_row_497560(PcRaceContext& c,std::uint32_t x,std::uint32_t slot,std
     const std::int32_t minutes=std::int32_t(std::uint16_t(q))/60;
     const std::uint32_t seconds=std::uint32_t(q)+std::uint32_t(minutes)*0xffc4u;
     call(c,0x42ccb0u,{0u});call(c,0x42cc60u,{One,One});call(c,0x42cca0u,{colour});call(c,0x42cc00u,{nx,ny});call(c,0x42ca60u,{9u});
-    call(c,0x42cdd0u,{name?name:0x5c2114u});                        // "PLAYER"
+    const std::uint32_t name_str = (name && m.mapped(name, 1) && m.u8(name)) ? name : 0x5c2114u;
+    call(c,0x42cdd0u,{name_str});                        // "PLAYER"
     call(c,0x42ca60u,{3u});
     const std::int32_t kind=std::int32_t(call(c,0x495b20u,{}));
     if(kind==0){

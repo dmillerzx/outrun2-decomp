@@ -15,12 +15,18 @@ https://github.com/emoose/OutRun2006Tweaks
 
 # OutRun 2006 Coast 2 Coast: native port
 
+<p align="center">
+  <img src="docs/assets/icon.png" width="128" height="128" alt="OutRun 2006 Coast 2 Coast Icon" /><br>
+  <b>Native Handheld &amp; Console Port</b><br>
+  <i>Android (Snapdragon 865 / Retroid Pocket 5), Nintendo Switch, macOS, PS5, Xbox One/Series</i>
+</p>
+
 A native port of the PC version of OutRun 2006 Coast 2 Coast (Sumo Digital /
-Sega, 2006) to Nintendo Switch, macOS (Apple silicon), PS5 (homebrew) and
-Xbox One / Series (Developer Mode). The game code is a reconstruction of the
-PC executable in C++ (part of it still translated from x86 by `tools/x86tr`,
-the rest written by hand); the platform layer (graphics, audio, input,
-files, network) is native to each system.
+Sega, 2006) to Android handhelds (Qualcomm Snapdragon 865, Retroid Pocket 5),
+Nintendo Switch, macOS (Apple silicon), PS5 (homebrew) and Xbox One / Series
+(Developer Mode). The game code is a reconstruction of the PC executable in C++
+(part of it still translated from x86 by `tools/x86tr`, the rest written by hand);
+the platform layer (graphics, audio, input, files, network) is native to each system.
 
 ![PS5 at 120 Hz](images/ps5pro-120hz-1.jpg)
 ![Switch in handheld mode](images/switch_handheld-1.jpg)
@@ -52,7 +58,7 @@ deleted at any time and is rebuilt at the next launch.
 | `src/runtime` | the shared game runner (`game_host`) used by every platform |
 | `src/input` | pad and lifecycle adapter shared by the Mac and PS5 builds |
 | `src/enhancements` | port additions kept apart from the reconstructed game: extra Options > Settings rows (aspect ratio, resolution, anti-aliasing, frame rate); each platform lists what it supports (`enhancements_*.cpp` in its `source/`) |
-| `switch/`, `mac/`, `ps5/`, `xbox/` | one folder per platform, same layout in each |
+| `switch/`, `mac/`, `ps5/`, `xbox/`, `android/` | one folder per platform, same layout in each |
 | `tests/` | unit and regression tests (CTest) |
 | `tools/` | EXE image tools, leak check, x86 translator, decompilation tracking, generators, PS5 build and package scripts |
 | `images/` | screenshots |
@@ -74,6 +80,7 @@ backgrounds, the Xbox package logos and the Mac application icon.
 
 | Platform | Command | Details |
 | --- | --- | --- |
+| Android (Handhelds) | `cd android && ./gradlew assembleRelease` | `android/README.md` |
 | Nintendo Switch | `make -C switch` | `switch/README.md` |
 | macOS | `cmake --preset mac-full` | `mac/README.md` |
 | PS5 | `Build-PS5.ps1` (Windows + WSL; makes the `.pkg`) | `ps5/README.md` |
