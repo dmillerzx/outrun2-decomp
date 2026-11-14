@@ -23,17 +23,23 @@ void apply_outrun2006_tweaks() {
     LOGI("=================================================");
 
     // 1. UseHiDefCharacters:
-    // Forces high-definition models for Alberto, Jennifer, and Clarissa during gameplay
-    // 0x6549B0: driver_chrsets[0] = 197 (CHR_DR_MH00)
-    // 0x6549D4: heroine_chrsets[3] = 198 (CHR_DR_LH00)
-    // 0x6549D8: heroine_chrsets[4] = 199 (CHR_DR_GH00)
-    platform::exe_image_patch_u32(0x006549B0u, 197u);
-    platform::exe_image_patch_u32(0x006549D4u, 198u);
-    platform::exe_image_patch_u32(0x006549D8u, 199u);
-    platform::exe_image_patch_u8(0x00487F42u, 197u); // O2SP driver
-    platform::exe_image_patch_u8(0x0048803Bu, 198u); // O2SP Jennifer
-    platform::exe_image_patch_u8(0x00488045u, 199u); // O2SP Clarissa
-    LOGI("[+] UseHiDefCharacters applied (Alberto MH00, Jennifer LH00, Clarissa GH00)");
+    // Forces high-definition models for Alberto, Jennifer, and Clarissa during gameplay.
+    // In the PC EXE, 0x6549B0 and 0x6549C8 are arrays of ChrSet indices (0..19), NOT model IDs.
+    // In chrset_info (0x654860):
+    //   ChrSet::CHR_DR_MH00 = 12 -> model ID 197 (0xC5, obj_chr_dr_mh00_pmt.sz)
+    //   ChrSet::CHR_DR_LH00 = 10 -> model ID 198 (0xC6, obj_chr_dr_lh00_pmt.sz)
+    //   ChrSet::CHR_DR_GH00 = 7  -> model ID 199 (0xC7, obj_chr_dr_gh00_pmt.sz)
+    // Alberto (driver_chrsets[0]): 11 (M00) -> 12 (MH00)
+    platform::exe_image_patch_u32(0x006549B0u, 12u);
+    // Jennifer (heroine_chrsets[3]): 9 (L00) -> 10 (LH00)
+    platform::exe_image_patch_u32(0x006549D4u, 10u);
+    // Clarissa (heroine_chrsets[4]): 5 (G00) -> 7 (GH00)
+    platform::exe_image_patch_u32(0x006549D8u, 7u);
+    // O2SP mode patches:
+    platform::exe_image_patch_u8(0x00487F42u, 12u); // O2SP driver (Alberto MH00)
+    platform::exe_image_patch_u8(0x0048803Bu, 10u); // O2SP Jennifer (LH00)
+    platform::exe_image_patch_u8(0x00488045u, 7u);  // O2SP Clarissa (GH00)
+    LOGI("[+] UseHiDefCharacters applied (Alberto MH00=12, Jennifer LH00=10, Clarissa GH00=7)");
 
     // 2. DisableStageCulling:
     // Disables distant stage object culling (bypasses CheckCulling at 0x40501F)

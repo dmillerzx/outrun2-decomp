@@ -88,10 +88,19 @@ public:
         }
         if (++draw_count_ % 120 == 0 || !result) {
             const auto stats = outrun::ps5_runtime::ps5_renderer_stats(r_);
-            LOGI("[Presenter::draw] res=%d frame=%u stats: frames=%u movie=%u loading=%u frontend=%u unowned=%u err=%s",
-                 int(result), draw_count_, stats.frames, stats.movie_frames, stats.loading_frames,
-                 stats.frontend_frames, stats.unowned_frames,
-                 outrun::ps5_runtime::ps5_renderer_pc_error(r_).c_str());
+            const auto& start = context_.start_mode;
+            LOGI("[Presenter::draw] res=%d frame=%u stats: f=%u l=%u fe=%u | mode=%u start_act=%d stage=%u own_stg=%u miss=0x%x own_miss=0x%x fault=0x%x ('%s') waits=%u",
+                 int(result), draw_count_, stats.frames, stats.loading_frames,
+                 stats.frontend_frames,
+                 context_.mode_state.current,
+                 int(start.active),
+                 start.stage,
+                 start.scene_owner_stage,
+                 start.last_missing_service,
+                 start.scene_owner_missing_service,
+                 start.scene_owner_fault,
+                 start.scene_owner_fault_reason.c_str(),
+                 start.gate_waits);
         }
         return result;
     }

@@ -3413,6 +3413,8 @@ std::uint32_t scene_owner_fault_at(NativeStartModeState& start,std::uint32_t at,
     if(start.scene_owner_fault==0u)start.scene_owner_fault=at;
     start.scene_owner_missing_service=at;
     if(why&&start.scene_owner_fault_reason.empty())start.scene_owner_fault_reason=why;
+    std::fprintf(stderr, "[scene_owner_fault_at] at=0x%x why='%s'\n", at, why ? why : "");
+    std::fflush(stderr);
     return 1u;
 }
 struct WorldFile {const std::vector<std::uint8_t>* bytes{};std::string path;std::uint32_t crc{};};
@@ -3693,7 +3695,10 @@ std::uint32_t native_scene_owner_service(NativeRuntimeContext& context,std::uint
     const auto variant=context.game_mode.game_variant;
     auto fault=[&](std::uint32_t at)->std::uint32_t{
         if(start.scene_owner_fault==0u)start.scene_owner_fault=at;
-        start.scene_owner_missing_service=at;return 0u;
+        start.scene_owner_missing_service=at;
+        std::fprintf(stderr, "[scene_owner_fault] at=0x%x reason='%s'\n", at, start.scene_owner_fault_reason.c_str());
+        std::fflush(stderr);
+        return 0u;
     };
     auto waiting=[&](std::uint32_t at,std::uint32_t busy)->std::uint32_t{start.scene_owner_missing_service=at;return busy;};
     const auto& frontend=context.event_function36;
