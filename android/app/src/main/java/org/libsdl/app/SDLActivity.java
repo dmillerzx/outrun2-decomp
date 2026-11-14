@@ -464,6 +464,7 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         if (mHIDDeviceManager != null) {
             mHIDDeviceManager.setFrozen(true);
         }
+        SDLControllerManager.hapticStop(-1);
         if (!mHasMultiWindow) {
             pauseNativeThread();
         }
@@ -591,6 +592,8 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
             HIDDeviceManager.release(mHIDDeviceManager);
             mHIDDeviceManager = null;
         }
+
+        SDLControllerManager.hapticStop(-1);
 
         SDLAudioManager.release(this);
 

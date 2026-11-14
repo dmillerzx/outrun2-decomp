@@ -45,10 +45,6 @@ static void trigger_android_haptics(float left_motor, float right_motor) {
 
     if (s_active_controller) {
         SDL_GameControllerRumble(s_active_controller, left_u16, right_u16, max_intensity > 0.01f ? 50 : 0);
-        SDL_Joystick* joy = SDL_GameControllerGetJoystick(s_active_controller);
-        if (joy) {
-            SDL_JoystickRumble(joy, left_u16, right_u16, max_intensity > 0.01f ? 50 : 0);
-        }
     }
     if (s_active_haptic) {
         if (max_intensity > 0.01f) {
@@ -167,7 +163,10 @@ public:
 
         // Controller Vibration / Force Feedback haptic feedback:
         // Strictly active only during live race modes (mode 16=Race, mode 18=Heart Attack/Course)
-        const bool in_race = (context_.mode_state.current == 16u || context_.mode_state.current == 18u);
+        // and when active gameplay is not paused
+        const bool paused = (context_.event_function36.title_pause_flag_95b214 != 0u ||
+                             context_.event_function36.title_pause_flag_7d2614 != 0u);
+        const bool in_race = (context_.mode_state.current == 16u || context_.mode_state.current == 18u) && !paused;
         if (in_race) {
             const auto& car_data = context_.event_function36.car_select.car_799d18;
             if (!car_data.empty()) {
@@ -508,6 +507,7 @@ extern "C" int SDL_main(int argc, char* argv[]) {
     rt::close_frontend(diag, context, fe);
     outrun::ps5_runtime::ps5_renderer_shutdown(renderer);
 
+    trigger_android_haptics(0.0f, 0.0f);
     audio.close();
     diag.audio_output = nullptr;
 

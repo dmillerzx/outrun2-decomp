@@ -121,6 +121,9 @@ public class SDLControllerManager
     {
         if (mHapticHandler != null) {
             mHapticHandler.stop(device_id);
+            if (device_id == 999999 || device_id == -1) {
+                mHapticHandler.stop(-1);
+            }
         }
         try {
             Context ctx = SDL.getContext();
@@ -575,9 +578,25 @@ class SDLHapticHandler {
     }
 
     public void stop(int device_id) {
+        if (device_id == 999999 || device_id == -1) {
+            for (SDLHaptic haptic : mHaptics) {
+                if (haptic != null && haptic.vib != null) {
+                    try {
+                        haptic.vib.cancel();
+                    } catch (Throwable t) {
+                        // ignore
+                    }
+                }
+            }
+            return;
+        }
         SDLHaptic haptic = getHaptic(device_id);
-        if (haptic != null) {
-            haptic.vib.cancel();
+        if (haptic != null && haptic.vib != null) {
+            try {
+                haptic.vib.cancel();
+            } catch (Throwable t) {
+                // ignore
+            }
         }
     }
 
