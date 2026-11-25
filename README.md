@@ -7,6 +7,8 @@
   <a href="https://github.com/dmillerzx/outrun2-decomp/releases">
     <img src="https://img.shields.io/badge/Platform-Android%20arm64--v8a-blue?style=for-the-badge&logo=android" alt="Platform: Android arm64-v8a">
   </a>
+  <img src="https://img.shields.io/badge/Graphics-Vulkan%201.1%2B%201080p%2060FPS-red?style=for-the-badge&logo=vulkan" alt="Vulkan 1080p 60FPS">
+  <img src="https://img.shields.io/badge/Updates-Obtainium%20Ready-purple?style=for-the-badge" alt="Obtainium Ready">
 </p>
 
 > [!NOTE]
@@ -30,19 +32,24 @@ The following enhancements (including the [emoose/OutRun2006Tweaks](https://gith
 
 <p align="center">
   <img src="docs/assets/icon.png" width="128" height="128" alt="OutRun 2006 Coast 2 Coast Icon" /><br>
-  <b>Native Handheld &amp; Console Port</b><br>
-  <i>Android (Snapdragon 865 / Retroid Pocket 5), Nintendo Switch, macOS, PS5, Xbox One/Series</i>
+  <b>Native Android Handheld Port (arm64-v8a / Vulkan)</b><br>
+  <i>Verified at 1080p 60 FPS on Retroid Pocket 5 (Snapdragon 865 / Adreno 650)</i>
 </p>
 
-A native port of the PC version of OutRun 2006 Coast 2 Coast (Sumo Digital /
-Sega, 2006) to Android handhelds (Qualcomm Snapdragon 865, Retroid Pocket 5),
-Nintendo Switch, macOS (Apple silicon), PS5 (homebrew) and Xbox One / Series
-(Developer Mode). The game code is a reconstruction of the PC executable in C++
-(part of it still translated from x86 by `tools/x86tr`, the rest written by hand);
-the platform layer (graphics, audio, input, files, network) is native to each system.
+![OutRun 2006 Coast 2 Coast running on Retroid Pocket 5](docs/assets/android-menu.png)
 
-![PS5 at 120 Hz](images/ps5pro-120hz-1.jpg)
-![Switch in handheld mode](images/switch_handheld-1.jpg)
+### What Makes This Android Fork Different
+
+| Feature | Android Handheld Implementation |
+| :--- | :--- |
+| **Vulkan Pipeline Cache** | Persists compiled pipelines in app-private storage (`OR2_PS5_VK_CACHE`), warming cached shaders in `< 1 ms` on relaunch |
+| **Frame Pacing** | 60.00 Hz VSync FIFO present mode with microsecond steady-clock pacing to prevent physics fast-forward |
+| **Force Feedback Haptics** | Xbox C2C `CalcVibrationValues` engine (road rumble, strips, tire slip, gear shifts, collisions) with edge-triggered `Vibrator` teardown |
+| **Adreno / Mobile Safety** | Vulkan scissor rect clamping (`VUID-00282`), robust sleep/wake swapchain recovery, and `WindowInsetsController` immersive mode |
+| **Zero-Config Storage** | Dynamic `/storage/*` MicroSD scan (supports any SD card UUID) + `sensorLandscape` orientation |
+| **OutRun2006Tweaks** | `UseHiDefCharacters`, `DisableStageCulling`, `DisableVehicleLODs`, `FixRightSideBunkiAnimations`, `FixIncorrectShading`, `FixFullPedalChecks`, `FixZBufferPrecision`, `FixPegasusClopping` |
+
+A native Android port of the PC version of OutRun 2006 Coast 2 Coast (Sumo Digital / Sega, 2006) based on the C++ decompilation/reconstruction by [r4dius](https://github.com/r4dius/outrun2-decomp).
 
 This repository holds code only. **It contains no game data and no part of
 the original executable.** To play, you need your own copy of the game
