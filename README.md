@@ -131,9 +131,3 @@ This source code is be freely available for use, modification, and redistributio
 Feel free to reuse any part of this project in your own work. Please give proper credit where due.
 
 If you reuse our modifications, please keep an appropriate reference to this project and its contributors.
-
-This project is developed and maintained in my free time.
-
-If you enjoy the project and would like to support its development, donations are appreciated but entirely optional:
-
-https://ko-fi.com/r4dius
