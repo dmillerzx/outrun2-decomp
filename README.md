@@ -48,7 +48,7 @@ The following enhancements (including the [emoose/OutRun2006Tweaks](https://gith
 | **Frame Pacing** | 60.00 Hz VSync FIFO present mode with microsecond steady-clock pacing to prevent physics fast-forward |
 | **Force Feedback Haptics** | Xbox C2C `CalcVibrationValues` engine (road rumble, strips, tire slip, gear shifts, collisions) with edge-triggered `Vibrator` teardown |
 | **Adreno / Mobile Safety** | Vulkan scissor rect clamping (`VUID-00282`), robust sleep/wake swapchain recovery, and `WindowInsetsController` immersive mode |
-| **Zero-Config Storage** | Dynamic `/storage/*` MicroSD scan (supports any SD card UUID) + `sensorLandscape` orientation |
+| **Handheld Controls & UI** | Xbox/Android ABXY button prompt textures, dynamic `/storage/*` MicroSD scan (any SD UUID), and `sensorLandscape` orientation |
 | **OutRun2006Tweaks** | `UseHiDefCharacters`, `DisableStageCulling`, `DisableVehicleLODs`, `FixRightSideBunkiAnimations`, `FixIncorrectShading`, `FixFullPedalChecks`, `FixZBufferPrecision`, `FixPegasusClopping` |
 
 A native Android port of the PC version of OutRun 2006 Coast 2 Coast (Sumo Digital / Sega, 2006) based on the C++ decompilation/reconstruction by [r4dius](https://github.com/r4dius/outrun2-decomp).
