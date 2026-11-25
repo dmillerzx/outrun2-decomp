@@ -56,11 +56,11 @@ the original executable.** To play, you need your own copy of the game
 
 ## What you need from your game
 
-- The folder of your OutRun 2006 Coast 2 Coast installation (Steam).
-- Its `OR2006C2C.EXE`. The port reads code tables and constants from it at
-  the first launch, checks every range it uses against SHA-256 hashes
-  (`src/system/exe_image_ranges.inc`), then keeps a prepared image,
-  `OR2006C2C.cache`, in the game folder. Later launches only read that file.
+- Copy your **OutRun 2006 Coast 2 Coast** PC (Steam) installation folder (including `OR2006C2C.EXE`, `Media/`, `Cars/`, etc.) manually onto your Android device into one of these auto-scanned paths:
+  - `<MicroSD>/ROMs/ports/outrun2006/` *(recommended — any SD card UUID is detected automatically)*
+  - `/sdcard/ROMs/ports/outrun2006/`
+  - `/sdcard/Android/data/org.outrun2.c2c/files/`
+- On first launch, the port reads code tables and constants from `OR2006C2C.EXE`, checks every range against SHA-256 hashes (`src/system/exe_image_ranges.inc`), and generates `OR2006C2C.cache` in that folder. Later launches only read the cache.
 
 The game files are read in place and never modified; `OR2006C2C.cache` can be
 deleted at any time and is rebuilt at the next launch.
