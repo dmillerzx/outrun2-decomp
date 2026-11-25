@@ -10,6 +10,7 @@
 #include <thread>
 #include <unistd.h>
 #include <pthread.h>
+#include <dirent.h>
 
 #include "runtime/game_host.hpp"
 #include "platform/pc_scene_renderer.hpp"
@@ -38,16 +39,23 @@ namespace {
 static SDL_GameController* s_active_controller = nullptr;
 static SDL_Haptic* s_active_haptic = nullptr;
 
-static void trigger_android_haptics(float left_motor, float right_motor) {
+static void trigger_android_haptics(float left_motor, float right_motor, bool force_stop = false) {
+    static bool s_haptics_active = false;
     const float max_intensity = std::max(left_motor, right_motor);
-    const Uint16 left_u16 = (max_intensity > 0.01f) ? static_cast<Uint16>(std::clamp(int(left_motor * 65535.0f), 0, 65535)) : 0;
-    const Uint16 right_u16 = (max_intensity > 0.01f) ? static_cast<Uint16>(std::clamp(int(right_motor * 65535.0f), 0, 65535)) : 0;
+    const bool want_active = (max_intensity > 0.01f) && !force_stop;
+    if (!want_active && !s_haptics_active && !force_stop) {
+        return;
+    }
+    s_haptics_active = want_active;
+
+    const Uint16 left_u16 = want_active ? static_cast<Uint16>(std::clamp(int(left_motor * 65535.0f), 0, 65535)) : 0;
+    const Uint16 right_u16 = want_active ? static_cast<Uint16>(std::clamp(int(right_motor * 65535.0f), 0, 65535)) : 0;
 
     if (s_active_controller) {
-        SDL_GameControllerRumble(s_active_controller, left_u16, right_u16, max_intensity > 0.01f ? 50 : 0);
+        SDL_GameControllerRumble(s_active_controller, left_u16, right_u16, want_active ? 50 : 0);
     }
     if (s_active_haptic) {
-        if (max_intensity > 0.01f) {
+        if (want_active) {
             SDL_HapticRumblePlay(s_active_haptic, max_intensity, 50);
         } else {
             SDL_HapticRumbleStop(s_active_haptic);
@@ -70,7 +78,7 @@ static void trigger_android_haptics(float left_motor, float right_motor) {
             }
         }
         if (s_mgr_class) {
-            if (max_intensity > 0.01f && s_haptic_run_mid) {
+            if (want_active && s_haptic_run_mid) {
                 env->CallStaticVoidMethod(s_mgr_class, s_haptic_run_mid, 999999, max_intensity, 50);
             } else if (s_haptic_stop_mid) {
                 env->CallStaticVoidMethod(s_mgr_class, s_haptic_stop_mid, 999999);
@@ -80,7 +88,7 @@ static void trigger_android_haptics(float left_motor, float right_motor) {
     }
 
     static int s_log_haptic_interval = 0;
-    if (max_intensity > 0.05f && ++s_log_haptic_interval % 60 == 1) {
+    if (want_active && max_intensity > 0.05f && ++s_log_haptic_interval % 60 == 1) {
         LOGI("Haptic vibration active: L=%.2f R=%.2f max=%.2f", left_motor, right_motor, max_intensity);
     }
 }
@@ -190,7 +198,7 @@ public:
     void disable_pc_specialised_shaders() override {}
 private:
     outrun::ps5_runtime::Ps5Renderer& r_;
-    rt::GameHost& host_;
+    [[maybe_unused]] rt::GameHost& host_;
     outrun::platform::NativeRuntimeContext& context_;
     unsigned draw_count_{0};
 };
@@ -206,14 +214,25 @@ private:
     outrun::ps5_runtime::Ps5Audio audio_;
 };
 
-// Search list for OutRun 2006 PC data
+// Search list for OutRun 2006 PC data (supports any MicroSD UUID + internal/external app storage)
 std::string find_game_directory() {
-    const std::vector<std::string> candidate_paths = {
-        "/storage/EEEF-F762/ROMs/ports/outrun2006",
-        "/storage/emulated/0/ROMs/ports/outrun2006",
-        "/sdcard/ROMs/ports/outrun2006",
-        "/sdcard/Android/data/org.outrun2.c2c/files"
-    };
+    std::vector<std::string> candidate_paths;
+    if (DIR* dir = opendir("/storage")) {
+        while (struct dirent* ent = readdir(dir)) {
+            const std::string name(ent->d_name);
+            if (name == "." || name == ".." || name == "emulated" || name == "self") {
+                continue;
+            }
+            candidate_paths.push_back("/storage/" + name + "/ROMs/ports/outrun2006");
+        }
+        closedir(dir);
+    }
+    candidate_paths.push_back("/storage/emulated/0/ROMs/ports/outrun2006");
+    candidate_paths.push_back("/sdcard/ROMs/ports/outrun2006");
+    if (const char* ext = SDL_AndroidGetExternalStoragePath()) {
+        candidate_paths.push_back(std::string(ext));
+    }
+    candidate_paths.push_back("/sdcard/Android/data/org.outrun2.c2c/files");
 
     for (const auto& path : candidate_paths) {
         std::string check = path + "/" + outrun::platform::ExeImageCacheName;
@@ -224,7 +243,7 @@ std::string find_game_directory() {
             return path;
         }
     }
-    return candidate_paths[0]; // fallback
+    return candidate_paths.front(); // fallback
 }
 
 } // namespace
@@ -381,31 +400,47 @@ extern "C" int SDL_main(int argc, char* argv[]) {
             if (trig_r > 8000) held |= rt::PadZR;
         }
 
-        // Keyboard & synthetic ADB keyevent fallback with event polling
-        static std::uint64_t latched_keys = 0;
+        // Keyboard, synthetic ADB keyevent, and controller hot-plug handling
+        static std::uint64_t held_keys = 0;
+        auto map_scancode = [](SDL_Scancode sc) -> std::uint64_t {
+            if (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_SPACE) return rt::PadPlus;
+            if (sc == SDL_SCANCODE_ESCAPE || sc == SDL_SCANCODE_BACKSPACE) return rt::PadMinus;
+            if (sc == SDL_SCANCODE_Z || sc == SDL_SCANCODE_C) return rt::PadA;
+            if (sc == SDL_SCANCODE_X || sc == SDL_SCANCODE_V) return rt::PadB;
+            if (sc == SDL_SCANCODE_A) return rt::PadX;
+            if (sc == SDL_SCANCODE_S) return rt::PadY;
+            if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_W) return rt::PadUp;
+            if (sc == SDL_SCANCODE_DOWN) return rt::PadDown;
+            if (sc == SDL_SCANCODE_LEFT) return rt::PadLeft;
+            if (sc == SDL_SCANCODE_RIGHT) return rt::PadRight;
+            if (sc == SDL_SCANCODE_Q || sc == SDL_SCANCODE_LSHIFT) return rt::PadL;
+            if (sc == SDL_SCANCODE_E || sc == SDL_SCANCODE_RSHIFT) return rt::PadR;
+            return 0;
+        };
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
-            if (ev.type == SDL_KEYDOWN) {
-                auto sc = ev.key.keysym.scancode;
-                if (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_SPACE) latched_keys |= rt::PadPlus;
-                if (sc == SDL_SCANCODE_ESCAPE || sc == SDL_SCANCODE_BACKSPACE) latched_keys |= rt::PadMinus;
-                if (sc == SDL_SCANCODE_Z || sc == SDL_SCANCODE_C) latched_keys |= rt::PadA;
-                if (sc == SDL_SCANCODE_X || sc == SDL_SCANCODE_V) latched_keys |= rt::PadB;
-                if (sc == SDL_SCANCODE_A) latched_keys |= rt::PadX;
-                if (sc == SDL_SCANCODE_S) latched_keys |= rt::PadY;
-                if (sc == SDL_SCANCODE_UP || sc == SDL_SCANCODE_W) latched_keys |= rt::PadUp;
-                if (sc == SDL_SCANCODE_DOWN) latched_keys |= rt::PadDown;
-                if (sc == SDL_SCANCODE_LEFT) latched_keys |= rt::PadLeft;
-                if (sc == SDL_SCANCODE_RIGHT) latched_keys |= rt::PadRight;
-                if (sc == SDL_SCANCODE_Q || sc == SDL_SCANCODE_LSHIFT) latched_keys |= rt::PadL;
-                if (sc == SDL_SCANCODE_E || sc == SDL_SCANCODE_RSHIFT) latched_keys |= rt::PadR;
-                LOGI("Drained SDL_KEYDOWN: scancode=%d latched=0x%llx", (int)sc, (unsigned long long)latched_keys);
+            if (ev.type == SDL_CONTROLLERDEVICEREMOVED && controller) {
+                SDL_Joystick* joy = SDL_GameControllerGetJoystick(controller);
+                if (joy && SDL_JoystickInstanceID(joy) == ev.cdevice.which) {
+                    LOGI("GameController disconnected (instance=%d)", ev.cdevice.which);
+                    trigger_android_haptics(0.0f, 0.0f, true);
+                    if (s_active_haptic) {
+                        SDL_HapticClose(s_active_haptic);
+                        s_active_haptic = nullptr;
+                    }
+                    SDL_GameControllerClose(controller);
+                    controller = nullptr;
+                    s_active_controller = nullptr;
+                }
+            } else if (ev.type == SDL_KEYDOWN) {
+                held_keys |= map_scancode(ev.key.keysym.scancode);
+            } else if (ev.type == SDL_KEYUP) {
+                held_keys &= ~map_scancode(ev.key.keysym.scancode);
             }
         }
-        if (latched_keys) {
+        if (held_keys) {
             p.connected = true;
-            held |= latched_keys;
-            latched_keys = 0;
+            held |= held_keys;
         }
 
         p.held = held;
@@ -458,6 +493,15 @@ extern "C" int SDL_main(int argc, char* argv[]) {
     }
     LOGI("Game assets loaded successfully!");
 
+    // Enable persistent Vulkan pipeline cache in app-private internal storage
+    if (!std::getenv("OR2_PS5_VK_CACHE")) {
+        const char* internal_dir = SDL_AndroidGetInternalStoragePath();
+        const std::string vk_cache_dir = (internal_dir && *internal_dir) ? std::string(internal_dir) : rt::home();
+        const std::string vk_cache_path = vk_cache_dir + "/vulkan-pipelines.cache";
+        setenv("OR2_PS5_VK_CACHE", vk_cache_path.c_str(), 1);
+        LOGI("Vulkan pipeline cache path: %s", vk_cache_path.c_str());
+    }
+
     outrun::ps5_runtime::Ps5Renderer renderer{};
     std::string renderer_error;
     if (!outrun::ps5_runtime::ps5_renderer_initialize(renderer, nullptr, renderer_error, &data.start_loading, nullptr, nullptr, nullptr)) {
@@ -507,7 +551,7 @@ extern "C" int SDL_main(int argc, char* argv[]) {
     rt::close_frontend(diag, context, fe);
     outrun::ps5_runtime::ps5_renderer_shutdown(renderer);
 
-    trigger_android_haptics(0.0f, 0.0f);
+    trigger_android_haptics(0.0f, 0.0f, true);
     audio.close();
     diag.audio_output = nullptr;
 

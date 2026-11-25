@@ -373,9 +373,12 @@ void VulkanD3D9Device::flush(){
     const bool back=colour_target_==BackBuffer;double sx=back?double(back_->width)/back_width_:1,sy=back?double(back_->height)/back_height_:1,ox=0;
     if(back&&ui_rect_&&batch_rhw_){const double w=double(back_->height)*4/3;ox=std::floor((back_->width-w)/2);sx=w/back_width_;}
     VkViewport viewport{float(ox+soft_viewport_.x*sx),float(soft_viewport_.y*sy),float(soft_viewport_.w*sx),float(soft_viewport_.h*sy),soft_viewport_.min_z,soft_viewport_.max_z};
-    const int x=std::max(0,int(std::lround(viewport.x))),y=std::max(0,int(std::lround(viewport.y)));
-    const int width=std::max(0,std::min(int(std::max(1u,target.colour->width>>target.level)),int(std::lround(viewport.x+viewport.width)))-x);
-    const int height=std::max(0,std::min(int(std::max(1u,target.colour->height>>target.level)),int(std::lround(viewport.y+viewport.height)))-y);
+    const int target_w=int(std::max(1u,target.colour->width>>target.level));
+    const int target_h=int(std::max(1u,target.colour->height>>target.level));
+    const int x=std::clamp(int(std::lround(viewport.x)),0,target_w);
+    const int y=std::clamp(int(std::lround(viewport.y)),0,target_h);
+    const int width=std::max(0,std::min(target_w,int(std::lround(viewport.x+viewport.width)))-x);
+    const int height=std::max(0,std::min(target_h,int(std::lround(viewport.y+viewport.height)))-y);
     bindings.viewport=viewport;bindings.scissor={{x,y},{unsigned(width),unsigned(height)}};
     bindings.depth_bias=f(render[RS_DEPTHBIAS])*16777215.f;bindings.slope_bias=f(render[RS_SLOPESCALEDEPTHBIAS]);bindings.stencil=render[57]&255;
     const auto factor=render[193];bindings.blend={float((factor>>16)&255)/255,float((factor>>8)&255)/255,float(factor&255)/255,float(factor>>24)/255};
