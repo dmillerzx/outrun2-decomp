@@ -1,3 +1,22 @@
+# 📱 OutRun 2006 Coast 2 Coast — Community Native Android Port
+
+<p align="center">
+  <a href="https://github.com/dmillerzx/outrun2-decomp/releases/latest">
+    <img src="https://img.shields.io/github/v/release/dmillerzx/outrun2-decomp?label=Latest%20Android%20APK&color=brightgreen&style=for-the-badge" alt="Latest Android APK">
+  </a>
+  <a href="https://github.com/dmillerzx/outrun2-decomp/releases">
+    <img src="https://img.shields.io/badge/Platform-Android%20arm64--v8a-blue?style=for-the-badge&logo=android" alt="Platform: Android arm64-v8a">
+  </a>
+</p>
+
+> [!NOTE]
+> **Native Android-Only Fork**: This repository is a community-driven fork dedicated **exclusively to the native Android (`arm64-v8a`) handheld port** (verified on the Retroid Pocket 5 / Snapdragon 865 / Adreno 650).
+>
+> * **Android Releases Only**: We do **not** publish Windows, macOS, Switch, PS5, or Xbox releases from this repository. For other platforms and upstream decompilation work, visit [r4dius/outrun2-decomp](https://github.com/r4dius/outrun2-decomp).
+> * **Handheld-Specific Optimizations**: All downstream changes and optimizations (persistent Android Vulkan pipeline cache, 60 Hz VSync FIFO frame pacing, Xbox C2C force-feedback haptics, edge-triggered `Vibrator` IPC, dynamic `/storage/*` MicroSD discovery, Adreno `VUID-00282` scissor clamping, and `WindowInsetsController` immersive mode) are built specifically for the Android handheld environment.
+
+---
+
 # Status #
 
 It is not finished yet, so bugs are to be expected.
