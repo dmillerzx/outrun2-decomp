@@ -65,6 +65,18 @@ the original executable.** To play, you need your own copy of the game
   - `/sdcard/Android/data/org.outrun2.c2c/files/`
 - On first launch, the port reads code tables and constants from `OR2006C2C.EXE`, checks every range against SHA-256 hashes (`src/system/exe_image_ranges.inc`), and generates `OR2006C2C.cache` in that folder. Later launches only read the cache.
 
+### 🎮 Handheld Controls & Obtainium Auto-Updates
+
+| Input | Action |
+| :--- | :--- |
+| **Left Stick / D-Pad** | Steer / Menu Navigation |
+| **RT (`ZR`) / `A`** | Accelerate / Confirm |
+| **LT (`ZL`) / `B`** | Brake / Drift / Back |
+| **LB (`L1`) / RB (`R1`)** | Shift Down / Shift Up (Manual) |
+| **Start (`+`) / Select (`-`)** | Pause / View Change |
+
+- **Obtainium**: Add `https://github.com/dmillerzx/outrun2-decomp` in Obtainium with APK filter `outrun2-c2c-android-.*\.apk$` to receive automatic updates.
+
 The game files are read in place and never modified; `OR2006C2C.cache` can be
 deleted at any time and is rebuilt at the next launch.
 
