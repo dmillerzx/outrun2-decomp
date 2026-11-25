@@ -1410,13 +1410,17 @@ struct T {
         std::uint32_t list=racers();
         std::uint32_t e=u32(0x80fb1cu)+(c36+1u)*0x14u;
         for(std::int32_t i=std::int32_t(c36)+1;i<=i32(0x80fb04u);++i,e+=0x14u){
-            const std::uint32_t r=list+u32(e+0x10)*0xa0u;
+            const std::int32_t idx=i32(e+0x10);
+            if(idx<0||std::uint32_t(idx)>=u32(0x80fb04u))continue;
+            const std::uint32_t r=list+std::uint32_t(idx)*0xa0u;
             if(i32(r+0x4c)>=0){follow_477090(r);list=racers();continue;}
             if(!u32(r+0x54))continue;
             if(i32(r+0x48)<-0x14&&u8(0x80fb09u)){
                 const float combined=smul(speed,scale);scale=combined;
                 for(;i<=i32(0x80fb04u);++i,e+=0x14u){
-                    const std::uint32_t rr=list+u32(e+0x10)*0xa0u;
+                    const std::int32_t idx2=i32(e+0x10);
+                    if(idx2<0||std::uint32_t(idx2)>=u32(0x80fb04u))continue;
+                    const std::uint32_t rr=list+std::uint32_t(idx2)*0xa0u;
                     if(!u8(0x80fb08u)){if(b3){wobble_476ca0(rr);wobble_476f40(rr);}if(b4)wobble_476df0(rr);}
                     bulk_step(rr,combined);
                 }
@@ -1431,13 +1435,17 @@ struct T {
         std::int32_t k=std::int32_t(c36)-1;
         e=u32(0x80fb1cu)+std::uint32_t(k)*0x14u;
         for(;k>=0;--k,e-=0x14u){
-            const std::uint32_t r=list+u32(e+0x10)*0xa0u;
+            const std::int32_t idx=i32(e+0x10);
+            if(idx<0||std::uint32_t(idx)>=u32(0x80fb04u))continue;
+            const std::uint32_t r=list+std::uint32_t(idx)*0xa0u;
             if(i32(r+0x4c)>=0){follow_477090(r);list=racers();continue;}
             if(!u32(r+0x54))continue;
             if(i32(r+0x48)>0x50&&u8(0x80fb09u)){
                 const float combined=smul(speed,scale);
                 for(;k>=0;--k,e-=0x14u){
-                    const std::uint32_t rr=list+u32(e+0x10)*0xa0u;
+                    const std::int32_t idx2=i32(e+0x10);
+                    if(idx2<0||std::uint32_t(idx2)>=u32(0x80fb04u))continue;
+                    const std::uint32_t rr=list+std::uint32_t(idx2)*0xa0u;
                     if(!u8(0x80fb08u)){if(b3){wobble_476ca0(rr);wobble_476f40(rr);}if(b4)wobble_476df0(rr);}
                     bulk_step(rr,combined);
                 }
@@ -4896,7 +4904,7 @@ struct T {
             pf(ps,v);
             if(u32(0x8037b8u))pf(ps,smul(f32(u32(0x64df64u)+0x14),v));
             else if(gt(K(0x5b4408u),f32(pl+0x1c4))&&call(0x44fdf0u,{})>=0x5e1u)pf(ps,smul(f32(u32(0x64df64u)+0x10),f32(ps)));
-            pf(ps,smul(racer_rate(racers()+std::uint32_t(std::int32_t(i8(w+0xc38))*0xa0)),f32(ps)));
+            {const std::int32_t ridx=i8(w+0xc38);if(ridx>=0&&ridx<i32(0x80fb04u))pf(ps,smul(racer_rate(racers()+std::uint32_t(ridx)*0xa0u),f32(ps)));}
             {
                 const X87 t=fild_u32(call(0x44fdf0u,{}));
                 const float ang=driving::x87_float(((t+x(w+0xb84))/x(w+0xb80))*X87(K(0x5a29dcu)));
@@ -5567,7 +5575,8 @@ struct T {
             {   const std::uint32_t cfg=u32(0x80fb0cu);
                 if(cfg&&(u8(cfg+0x30)&0x18u)){
                     const std::uint32_t r=call(0x495880u,{});
-                    if(r&&i32(std::uint32_t(std::int32_t(i8(w+0xc38))*0xa0)+u32(0x80fb00u)+0x98u)>std::int32_t(r))
+                    const std::int32_t ridx=i8(w+0xc38);
+                    if(r&&ridx>=0&&ridx<i32(0x80fb04u)&&i32(std::uint32_t(ridx)*0xa0u+u32(0x80fb00u)+0x98u)>std::int32_t(r))
                         p32(w+0xc,u32(w+0xc)&0xf7ffffffu);
                 }
             }

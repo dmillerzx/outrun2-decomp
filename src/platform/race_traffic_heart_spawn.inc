@@ -160,7 +160,9 @@
         Frame f(*this,0x40);
         const std::uint32_t P=f(0x2c),pos=f(0x20),ang=f(0x14),spd=f(0x10),col=f(8);
         p32(P,u32(pl+0x5c));p32(P+4,u32(pl+0x60));p32(P+8,u32(pl+0x64));
-        p16(P+8,u16(rec+4));p32(P+0xc,u32(pl+0x68));p8(P+0xa,u8(rec+6)+1u);
+        std::uint8_t lane=u8(rec+6)+1u;
+        if(u32(P)==0u&&lane>=6u)lane=5u;
+        p16(P+8,u16(rec+4));p32(P+0xc,u32(pl+0x68));p8(P+0xa,lane);
         std::int32_t i=0;std::uint32_t id=0x19au;
         const std::int32_t cnt=i32(0x680ad8u);
         if(cnt<=0)return 0;

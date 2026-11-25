@@ -2329,7 +2329,6 @@ bool native_game_load_request_course(NativeRuntimeContext& c){
     request.loader_mode=1u;request.required=0u;
     const bool ok=driving::runtime_apply_course_data_44d720(request,driving::course_descriptor_tables_r078(game.course_assets->descriptors),
         game.course_runtime,matrices,driving::course_provider_services_r077(provider));
-    std::fprintf(stderr,"[dbg] reqcourse ok=%d loaded=%d phase=%d sel=%d prim=%x cfg=%u/%u/%u size=%zu\n",int(ok),int(provider.loaded),int(request.loader.phase),int(game.course_runtime.selected_copy_active),le32(game.course_runtime.selected_7d30a8.data()+0x14u),cfg[0],cfg[1],cfg[2],provider.size);
     if(ok&&request.loader.phase<3){const std::uint32_t three=3u;std::memcpy(block.data()+0x98u,&three,4);}
     game.course_bytes=static_cast<std::uint32_t>(provider.size);game.course_provider_loaded=provider.loaded;
     game.course_matrix_ready=game.course_runtime.selected_copy_active&&
@@ -2443,6 +2442,10 @@ void native_start_mode_init(NativeRuntimeContext& context){
     start.manager_state_7f94c0=0u;
     start.render_mode_754b0c=0u;
     start.first_race_flags_7d3a10=0u;
+    // Clear any leftover suspend (0x10) or pause (0x08) flags on the 410 event
+    // slots (e.g. when retrying from Pause -> Mode 34 -> Mode 30 -> Mode 13,
+    // where 0x440110 preserves bits 0x10/0x08 and would keep course/sky/traffic frozen).
+    for(auto& slot:context.event_state.slots)slot.flags=static_cast<std::uint8_t>(slot.flags&0xe7u);
     // 836374 is not touched by START_Init 49DB20: it keeps the value the
     // SUMO_FE commit (4EEC80 -> 4957D0) or the mission manager left.
     start.game_flag_780248=0u;
@@ -3115,8 +3118,9 @@ void native_game_mode_init(NativeRuntimeContext& context){
 
     // The diagnostic SUMO_FE -> GAME path still loads here.  The original
     // START -> GAME path reuses the course established in START stage 0.
-    if(game.previous_mode!=13u||game.course_load_success==0u)
+    if(!game.course_runtime.selected_copy_active){
         native_game_load_course(game);
+    }
 
     // The natural START path owns a selected/transformed course world, but its
     // exact original grid spawn is not reconstructed yet. Keep it fail-closed.

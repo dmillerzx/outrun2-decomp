@@ -533,7 +533,16 @@ void PcSceneRenderer::render_frame(driving::PcEventControlState& events,std::uin
         environment_.lights_899b98.data()+0x140,display,tables};
     sv.mode_84a318=mode_84a318;
     if(layer_callback)for(std::uint32_t k=0;k<frame_.layers.size();++k)frame_.layers[k].callback=layer_callback(k);
-    frame_render_449050(*flush_,frame_,in,sv);
+    if(matrices_.depth<0||matrices_.current_offset<0){matrices_.depth=0;matrices_.current_offset=0;}
+    const auto saved_depth=matrices_.depth;
+    const auto saved_offset=matrices_.current_offset;
+    try{
+        frame_render_449050(*flush_,frame_,in,sv);
+    }catch(...){
+        matrices_.depth=saved_depth;
+        matrices_.current_offset=saved_offset;
+        throw;
+    }
     ++frames;
 }
 }

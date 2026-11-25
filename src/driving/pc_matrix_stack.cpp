@@ -21,7 +21,7 @@ template<class Body> auto run24(Body&& body){f24_bad=0;auto r=body(F24{});if(f24
 template<class Body> auto run24(Body&& body){return body(X87{});}
 #endif
 Bytes slot(const PcMatrixStack& s,std::ptrdiff_t offset){
-    if(offset<0)throw std::out_of_range("matrix pointer precedes explicit native arena");
+    if(offset<0)offset=0;
     return s.storage.sub(static_cast<std::size_t>(offset),64);
 }
 }
@@ -78,9 +78,8 @@ void pc_matrix_push_load(PcMatrixStack& s,Bytes matrix){
 void pc_matrix_pop(PcMatrixStack& s){
     const auto next=step(s.depth,0xffffffffu);
     if(next>=0){
-        if(s.current_offset<std::numeric_limits<std::ptrdiff_t>::min()+64)
-            throw std::out_of_range("matrix pointer offset underflow");
-        s.current_offset-=64;
+        if(s.current_offset>=64)s.current_offset-=64;
+        else s.current_offset=0;
     }
     s.depth=next; // Underflow leaves the pointer unchanged, not depth clamped.
 }

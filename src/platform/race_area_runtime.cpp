@@ -739,7 +739,7 @@ std::uint32_t execute(NativeRaceAreaRuntime& o,Service& sv,PcSceneRenderer& r,co
         switch(call.pc){
         case 0x405360u:{
             if(a[0]==None)break;
-            if(!sv.ensure_bank(a[0]>>16))break;                      // not resident: 448810 +0C = 0
+            if(!sv.ensure_bank(a[0]>>16))break;
             load(call);
             Bytes nodes(nullptr,0);
             if(a[2]){
@@ -933,7 +933,8 @@ bool native_race_area_event_invoke(NativeRuntimeContext& c,std::uint32_t callbac
         }
     }catch(const std::exception& e){
         const std::string why=(callback==0x44cb00u?"44CB00: ":callback==0x44f7c0u?"44F7C0: ":callback==0x451a30u?"451A30: ":callback==0x451b40u?"451B40: ":"44B7F0: ")+what_of(e);
-        ++o.aborts[why];o.last_error=why;
+        if(++o.aborts[why]==1u)std::fprintf(stderr,"[race_area] %s\n",why.c_str());
+        o.last_error=why;
         if(!o.fault_pc&&o.fault.empty())o.fault=why;
         if(callback==0x44cb00u){o.init_failed=true;o.initialized=false;}
         if(callback==0x451a30u){o.sky_init_failed=true;o.sky_initialized=false;}
@@ -963,7 +964,9 @@ bool native_race_area_display(NativeRuntimeContext& c,PcSceneRenderer& r,std::ui
     if(callback!=0x44f120u&&callback!=0x4521c0u)return false;
     auto& o=native_race_area(c);
     const bool area=callback==0x44f120u;
-    if(area?!o.initialized:!o.sky_initialized){++o.aborts[area?"44F120 without a completed 44CB00":"4521C0 without a completed 451A30"];
+    if(area?!o.initialized:!o.sky_initialized){
+        const std::string why=area?"44F120 without a completed 44CB00":"4521C0 without a completed 451A30";
+        if(++o.aborts[why]==1u)std::fprintf(stderr,"[race_area] %s\n",why.c_str());
         ++(area?o.display_aborts:o.sky_display_aborts);return true;}
     o.frame=c.completed_frames;
     if(area)r.step_banks(1.5);                              // the queued 448AD0 banks (port)
@@ -986,16 +989,18 @@ bool native_race_area_display(NativeRuntimeContext& c,PcSceneRenderer& r,std::ui
         // objects and back on after them), which then leaked into every
         // later draw of the frame (car and wheels without depth test).
         const std::string why=std::string(area?"44F120: ":"4521C0: ")+e.what();
-        ++o.aborts[why];o.last_error=why;++(area?o.display_aborts:o.sky_display_aborts);
+        if(++o.aborts[why]==1u)std::fprintf(stderr,"[race_area] %s\n",why.c_str());
+        o.last_error=why;++(area?o.display_aborts:o.sky_display_aborts);
         while(matrices.depth>depth)driving::pc_matrix_pop(matrices);
         draws.clear();
     }
     try{
-        const auto n=execute(o,sv,r,draws);(void)n;
+        const auto n=execute(o,sv,r,draws);
         (area?o.last_area_draws:o.last_sky_draws)=std::uint32_t(draws.size());
     }catch(const std::exception& e){
         const std::string why=std::string(area?"44F120 draw list: ":"4521C0 draw list: ")+e.what();
-        ++o.aborts[why];o.last_error=why;++(area?o.display_aborts:o.sky_display_aborts);
+        if(++o.aborts[why]==1u)std::fprintf(stderr,"[race_area] %s\n",why.c_str());
+        o.last_error=why;++(area?o.display_aborts:o.sky_display_aborts);
     }
     return true;
 }

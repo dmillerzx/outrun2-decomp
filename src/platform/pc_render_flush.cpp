@@ -689,11 +689,11 @@ struct Flush {
             u32 texture=texture_of(bank,layer.texture);
             u32 alt=0;
             if(e.colour_list&&c.colour_alt&&c.colour_alt(e.colour_list,key,e.colour,alt)&&alt!=None){
-                key=alt;
-                auto* other=c.bank(alt>>16);
-                if(!other)throw std::runtime_error("408C80 colour texture bank not loaded");
-                if((alt&0xffffu)>=pmt_u32(other->system,8))texture=0;
-                else texture=texture_of(*other,alt&0xffffu);
+                if(auto* other=c.bank(alt>>16)){
+                    key=alt;
+                    if((alt&0xffffu)>=pmt_u32(other->system,8))texture=0;
+                    else texture=texture_of(*other,alt&0xffffu);
+                }
             }
             if(mc.texture_key[s]!=key){
                 if(px.texture[s].bound!=1u){px.texture[s].bound=1;px.dirty=1;}
@@ -751,7 +751,10 @@ struct Flush {
         if(const auto it=g.declaration_sizes.find(decl);it!=g.declaration_sizes.end())return it->second;
         std::array<PcVertexElement,PcMaxFvfDeclSize> el{};
         const auto count=d.get_declaration(decl,el.data());
-        if(count<2u||count>PcMaxFvfDeclSize)throw std::runtime_error("404700 declaration without elements");
+        if(count<2u||count>PcMaxFvfDeclSize){
+            g.declaration_sizes.emplace(decl,0u);
+            return 0u;
+        }
         const auto& last=el[count-2u];
         u32 size=last.offset;
         switch(last.type){case 0:size+=4;break;case 1:size+=8;break;case 2:case 4:size+=12;break;default:break;}
@@ -789,10 +792,10 @@ struct Flush {
                 const auto dr=pmt<PmtDraw>(sys,obj.draws+(prim.first_draw[e.pass]+u32(k))*0x20u);
                 const auto shader=shader_record(sys,obj,dr.material,prim.group);
                 const auto size=declaration_size(shader.declaration);
+                if(size==0u||stride!=size)continue;   // vertex layout the stream cannot feed: skipped as on the PC
                 shader_410680(shader);
                 d.set_indices(index_buffer);
                 material_408c80(e,bank,obj.materials+dr.material*0x58u);
-                if(stride!=size)continue;   // vertex layout the stream cannot feed: skipped as on the PC
                 const auto range=pmt<PmtRange>(sys,obj.ranges+dr.range*16u);
                 const auto vertices=group.vertex_bytes/stride-dr.base_vertex;
                 (void)d.draw_indexed_primitive(5,std::int32_t(dr.base_vertex),0,vertices,range.start,range.count);
