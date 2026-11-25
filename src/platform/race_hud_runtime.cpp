@@ -576,6 +576,9 @@ bool native_race_hud_mission_control(NativeRuntimeContext& c,MissionManagerServi
     // The race part's 495D90 projection runs on the renderer's matrix stack;
     // without it (no PC renderer) the mission manager reports it.
     r.matrices=nullptr;                                      // not bound yet: 495D90 reports it (see report)
+    // Keep mission_manager's copy of 0x836374 synchronized with start_mode so
+    // rival drift/slipstream scoring is not skipped after 4964D0.
+    m.manager.selection_836374=c.start_mode.selection_active_836374?1u:0u;
     bool ok=false;
     try{ok=mission_manager_control_496a30(m.manager,ms,r);}
     catch(const std::exception& e){o.last_error="496A30: "+what(e);}
