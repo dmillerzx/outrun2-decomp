@@ -19,20 +19,14 @@
 
 # Status #
 
-It is not finished yet, so bugs are to be expected.
-Some menus are incorrect, and some visual effects, performance-related aspects,
-game behaviors, and functionality are not final yet.
-Some early enhancements have already been added, including:
-- multiple anti-aliasing methods
-- multiple resolution options
-- widescreen support
-- 120 FPS support
+This Android port is actively developed; while core gameplay is playable at 1080p 60 FPS on Snapdragon 865 / Adreno 650 handhelds, some upstream gameplay bugs and visual/menu edge cases are still being resolved.
 
-Once the decompilation is complete and the remaining issues are fixed,
-additional enhancements will be added, including features from at least:
-https://github.com/emoose/OutRun2006Tweaks
+The following enhancements (including the [emoose/OutRun2006Tweaks](https://github.com/emoose/OutRun2006Tweaks) suite) are **already integrated**:
+- **OutRun2006Tweaks Suite**: `UseHiDefCharacters`, `DisableStageCulling`, `DisableVehicleLODs`, `FixRightSideBunkiAnimations`, `FixIncorrectShading`, `FixLensFlarePath`, `FixBinkLargeMovies`, `FixFullPedalChecks`, `FixZBufferPrecision`, and `FixPegasusClopping`.
+- **Android Handheld Features**: Native 1080p Vulkan renderer, persistent Vulkan pipeline cache, Xbox C2C force-feedback haptics, 16:9 widescreen, and multiple anti-aliasing / resolution options.
+- **Active Bug-Fix Roadmap**: Investigating and fixing remaining upstream gameplay issues (such as Coast 2 Coast rival drift scoring and end-of-race transition hangs) for upcoming Android releases.
 
-# OutRun 2006 Coast 2 Coast: native port
+# OutRun 2006 Coast 2 Coast: Native Android Port
 
 <p align="center">
   <img src="docs/assets/icon.png" width="128" height="128" alt="OutRun 2006 Coast 2 Coast Icon" /><br>
