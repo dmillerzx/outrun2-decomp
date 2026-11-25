@@ -36,7 +36,9 @@ The following enhancements (including the [emoose/OutRun2006Tweaks](https://gith
   <i>Verified at 1080p 60 FPS on Retroid Pocket 5 (Snapdragon 865 / Adreno 650)</i>
 </p>
 
-![OutRun 2006 Coast 2 Coast running on Retroid Pocket 5](docs/assets/android-menu.png)
+| In-Game 1080p 16:9 Widescreen (RP5) | Main Menu (RP5) |
+| :---: | :---: |
+| ![OutRun 2006 Coast 2 Coast in-game widescreen on Retroid Pocket 5](docs/assets/android-gameplay.png) | ![OutRun 2006 Coast 2 Coast main menu on Retroid Pocket 5](docs/assets/android-menu.png) |
 
 ### What Makes This Android Fork Different
 
