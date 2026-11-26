@@ -3770,7 +3770,12 @@ std::uint32_t native_scene_owner_service(NativeRuntimeContext& context,std::uint
             return fault(0x42deb0u);
         }
         return 0u;
-    case 0x49b3c0u:start.scene_owner_list_8367f8.push_back(eax);++start.scene_owner_release_count;return 0u;   // 429920
+    case 0x49b3c0u:{start.scene_owner_list_8367f8.push_back(eax);++start.scene_owner_release_count;
+        if(eax>=0x20u&&eax<0x4bu){
+            std::string err;
+            (void)native_sprani_bind_bank(context,eax,err);
+        }
+        return 0u;}   // 429920
     case 0x49b3f0u:
         start.scene_owner_list_836850.push_back(eax);
         if(a[0]==0u){++start.scene_owner_rearm_448ad0;return 0u;}                   // 448AD0(id,0) rearms a resident entry

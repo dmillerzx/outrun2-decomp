@@ -9,24 +9,27 @@
   </a>
   <img src="https://img.shields.io/badge/Graphics-Vulkan%201.1%2B%201080p%2060FPS-red?style=for-the-badge&logo=vulkan" alt="Vulkan 1080p 60FPS">
   <img src="https://img.shields.io/badge/Updates-Obtainium%20Ready-purple?style=for-the-badge" alt="Obtainium Ready">
+  <a href="https://github.com/dmillerzx/outrun2-decomp/issues">
+    <img src="https://img.shields.io/github/issues/dmillerzx/outrun2-decomp?style=for-the-badge&color=orange" alt="GitHub Issues">
+  </a>
 </p>
 
 > [!NOTE]
-> **Native Android-Only Fork**: This repository is a community-driven fork dedicated **exclusively to the native Android (`arm64-v8a`) handheld port** (verified on the Retroid Pocket 5 / Snapdragon 865 / Adreno 650).
+> **Native Android-Only Fork**: This repository is a community-driven fork maintained by [dmillerzx](https://github.com/dmillerzx) dedicated **exclusively to the native Android (`arm64-v8a`) handheld port** (verified on the Retroid Pocket 5 / Snapdragon 865 / Adreno 650).
 >
 > * **Android Releases Only**: We do **not** publish Windows, macOS, Switch, PS5, or Xbox releases from this repository. For other platforms and upstream decompilation work, visit [r4dius/outrun2-decomp](https://github.com/r4dius/outrun2-decomp).
 > * **Handheld-Specific Optimizations**: All downstream changes and optimizations (persistent Android Vulkan pipeline cache, 60 Hz VSync FIFO frame pacing, Xbox C2C force-feedback haptics, edge-triggered `Vibrator` IPC, dynamic `/storage/*` MicroSD discovery, Adreno `VUID-00282` scissor clamping, and `WindowInsetsController` immersive mode) are built specifically for the Android handheld environment.
+> * **Issue Reporting**: Please report Android-specific issues on [dmillerzx/outrun2-decomp/issues](https://github.com/dmillerzx/outrun2-decomp/issues) rather than upstream desktop/console trackers.
 
 ---
 
-# Status #
+## Status
 
-This Android port is actively developed; while core gameplay is playable at 1080p 60 FPS on Snapdragon 865 / Adreno 650 handhelds, some upstream gameplay bugs and visual/menu edge cases are still being resolved.
+All core single-player modes (**OutRun**, **Heart Attack**, **Time Attack**, **OutRun2SP**, and **Coast 2 Coast**) are playable at native **1080p 60 FPS** on Snapdragon 865 / Adreno 650 handhelds with verified Retry/Restart stability, Heart Attack SPRANI challenge banners/meters, and vertex/matrix safety guards.
 
 The following enhancements (including the [emoose/OutRun2006Tweaks](https://github.com/emoose/OutRun2006Tweaks) suite) are **already integrated**:
 - **OutRun2006Tweaks Suite**: `UseHiDefCharacters`, `DisableStageCulling`, `DisableVehicleLODs`, `FixRightSideBunkiAnimations`, `FixIncorrectShading`, `FixLensFlarePath`, `FixBinkLargeMovies`, `FixFullPedalChecks`, `FixZBufferPrecision`, and `FixPegasusClopping`.
 - **Android Handheld Features**: Native 1080p Vulkan renderer, persistent Vulkan pipeline cache, Xbox C2C force-feedback haptics, 16:9 widescreen, and multiple anti-aliasing / resolution options.
-- **Active Bug-Fix Roadmap**: Investigating and fixing remaining upstream gameplay issues (such as Coast 2 Coast rival drift scoring and end-of-race transition hangs) for upcoming Android releases.
 
 # OutRun 2006 Coast 2 Coast: Native Android Port
 

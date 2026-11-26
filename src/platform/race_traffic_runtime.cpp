@@ -643,8 +643,12 @@ struct Run {
             return std::uint32_t(driving::road_stage_window_44ddc0(std::int32_t(a[0]),std::uint16_t(a[1]),m().u16(m().u32(0x6a55c8u)+0x7eu)));
         case 0x580f40u:routed(pc);return frontend_crt_random_580f40(c.event_function36.pc_crt_random_state);
         // SPRANI pool (95E028 + handle * 0x7C), the race end binding's semantics
-        case 0x428320u:routed(pc);return c.event_function36.frontend_sprites.create(a[0],a[1],a[2],-1,-1,false,c.event_function36.title_pause_flag_95b214);
-        case 0x428460u:routed(pc);return c.event_function36.frontend_sprites.create(a[0],a[1],a[2],std::int32_t(a[3]),std::int32_t(a[4]),true,c.event_function36.title_pause_flag_95b214);
+        case 0x428320u:case 0x428460u:{routed(pc);
+            auto& pool=c.event_function36.frontend_sprites;
+            FrontendSpriteTiming tmp{};
+            if(!pool.bank_scene(a[0],tmp)){std::string err;(void)native_sprani_bind_bank(c,a[0]>>16u,err);}
+            return pc==0x428320u?pool.create(a[0],a[1],a[2],-1,-1,false,c.event_function36.title_pause_flag_95b214)
+                :pool.create(a[0],a[1],a[2],std::int32_t(a[3]),std::int32_t(a[4]),true,c.event_function36.title_pause_flag_95b214);}
         case 0x4285a0u:routed(pc);if(a[0]<FrontendSprites::Count)c.event_function36.frontend_sprites.release(a[0]);return 0u;
         case 0x428770u:routed(pc);if(auto* s=c.event_function36.frontend_sprites.get_mutable(a[0]))s->mode=a[1];return 0u;
         case 0x428800u:{routed(pc);float f;std::memcpy(&f,&a[1],4);if(a[0]<FrontendSprites::Count)c.event_function36.frontend_sprites.set_speed(a[0],f);return 0u;}
@@ -656,8 +660,10 @@ struct Run {
             if(std::int32_t(a[0])>=0)if(auto* s=c.event_function36.frontend_sprites.get_mutable(a[0]))s->id_2c=std::int32_t(a[1]);
             return 0u;
         case 0x429780u:{routed(pc);   // 429780(token, &a, &b): the scene's root component (48BD20): a = ftol(+4), b = ftol(+8) - 1
+            auto& pool=c.event_function36.frontend_sprites;
             FrontendSpriteTiming t{};
-            if(!c.event_function36.frontend_sprites.bank_scene(a[0],t))return 0u;
+            if(!pool.bank_scene(a[0],t)){std::string err;(void)native_sprani_bind_bank(c,a[0]>>16u,err);}
+            if(!pool.bank_scene(a[0],t))return 0u;
             auto ftol=[](float v){return (v>-2147483649.0f&&v<2147483648.0f)?std::uint32_t(std::int32_t(v)):0x80000000u;};
             if(a[1])m().put32(a[1],ftol(t.root4));
             if(a[2])m().put32(a[2],ftol(t.frames)-1u);
