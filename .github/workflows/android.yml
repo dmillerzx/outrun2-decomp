@@ -56,11 +56,3 @@ jobs:
         with:
           name: outrun2-c2c-android-release
           path: android/app/build/outputs/apk/release/app-release.apk
-
-      - name: Publish GitHub Release Preview
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            android/app/build/outputs/apk/release/app-release.apk
-          generate_release_notes: true
