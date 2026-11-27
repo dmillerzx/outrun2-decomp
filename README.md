@@ -62,11 +62,12 @@ the original executable.** To play, you need your own copy of the game
 
 ## What you need from your game
 
-- Copy your **OutRun 2006 Coast 2 Coast** PC (Steam) installation folder (including `OR2006C2C.EXE`, `Media/`, `Cars/`, etc.) manually onto your Android device into one of these auto-scanned paths:
+- Copy your **OutRun 2006 Coast 2 Coast** PC (**Steam**) installation folder (`OR2006C2C.EXE`, `Media/`, `Cars/`, `Stage/`, `Scripts/`, `Sprite/`, etc.) onto your Android device into one of these auto-scanned paths, **or** place it anywhere on internal/SD storage and select it from the in-app **Choose Folder** prompt on first launch:
   - `<MicroSD>/ROMs/ports/outrun2006/` *(recommended — any SD card UUID is detected automatically)*
   - `/sdcard/ROMs/ports/outrun2006/`
-  - `/sdcard/Android/data/org.outrun2.c2c/files/`
-- On first launch, the port reads code tables and constants from `OR2006C2C.EXE`, checks every range against SHA-256 hashes (`src/system/exe_image_ranges.inc`), and generates `OR2006C2C.cache` in that folder. Later launches only read the cache.
+  - `/sdcard/Android/data/org.outrun2.c2c/files/` *(requires no special storage permission)*
+- On first launch, the port reads `OR2006C2C.EXE` on-device, verifies every range against SHA-256 hashes (`src/system/exe_image_ranges.inc`), and generates `OR2006C2C.cache` automatically. Later launches boot directly from cache.
+- If game files or All Files Access are missing, an interactive setup dialog guides you to **Choose Folder** or **All Files Access**, and writes full diagnostics to `/sdcard/Android/data/org.outrun2.c2c/files/outrun2006.log`.
 
 ### 🎮 Handheld Controls & Obtainium Auto-Updates
 

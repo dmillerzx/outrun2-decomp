@@ -796,8 +796,12 @@ void Context::setup_display(unsigned width,unsigned height){
     if(format==formats.end())format=formats.begin();
     surface_format_ = *format;
 
-    display_width_=caps.currentExtent.width!=0xFFFFFFFF?caps.currentExtent.width:width;
-    display_height_=caps.currentExtent.height!=0xFFFFFFFF?caps.currentExtent.height:height;
+    unsigned req_w=(caps.currentExtent.width!=0xFFFFFFFF&&caps.currentExtent.width!=0)?caps.currentExtent.width:std::max(1u,width);
+    unsigned req_h=(caps.currentExtent.height!=0xFFFFFFFF&&caps.currentExtent.height!=0)?caps.currentExtent.height:std::max(1u,height);
+    if(caps.maxImageExtent.width)req_w=std::clamp(req_w,caps.minImageExtent.width,caps.maxImageExtent.width);
+    if(caps.maxImageExtent.height)req_h=std::clamp(req_h,caps.minImageExtent.height,caps.maxImageExtent.height);
+    display_width_=req_w;
+    display_height_=req_h;
     native_refresh=60u;
 
     unsigned images=std::max(3u,caps.minImageCount);
@@ -819,6 +823,12 @@ void Context::setup_display(unsigned width,unsigned height){
         unsigned(caps.currentTransform),unsigned(caps.supportedTransforms),
         unsigned(preTransform),display_width_,display_height_,int(presentMode));
 
+    VkCompositeAlphaFlagBitsKHR alpha_mode=VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    if(caps.supportedCompositeAlpha&VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)alpha_mode=VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+    else if(caps.supportedCompositeAlpha&VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)alpha_mode=VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    else if(caps.supportedCompositeAlpha&VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)alpha_mode=VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
+    else if(caps.supportedCompositeAlpha&VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR)alpha_mode=VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+
     VkSwapchainCreateInfoKHR swap{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     swap.surface=surface_;
     swap.minImageCount=images;
@@ -826,11 +836,10 @@ void Context::setup_display(unsigned width,unsigned height){
     swap.imageColorSpace=format->colorSpace;
     swap.imageExtent={display_width_,display_height_};
     swap.imageArrayLayers=1;
-    swap.imageUsage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    swap.imageUsage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|(caps.supportedUsageFlags&VK_IMAGE_USAGE_TRANSFER_DST_BIT);
     swap.imageSharingMode=VK_SHARING_MODE_EXCLUSIVE;
     swap.preTransform=preTransform;
-    swap.compositeAlpha=(caps.supportedCompositeAlpha&VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)?
-        VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR:VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    swap.compositeAlpha=alpha_mode;
     swap.presentMode=presentMode;
     swap.clipped=VK_TRUE;
 
@@ -940,8 +949,10 @@ void Context::recreate_swapchain(){
         return;
     }
 
-    display_width_ = caps.currentExtent.width != 0xFFFFFFFF ? caps.currentExtent.width : 1920u;
-    display_height_ = caps.currentExtent.height != 0xFFFFFFFF ? caps.currentExtent.height : 1080u;
+    display_width_ = (caps.currentExtent.width != 0xFFFFFFFF && caps.currentExtent.width != 0) ? caps.currentExtent.width : 1920u;
+    display_height_ = (caps.currentExtent.height != 0xFFFFFFFF && caps.currentExtent.height != 0) ? caps.currentExtent.height : 1080u;
+    if(caps.maxImageExtent.width) display_width_ = std::clamp(display_width_, caps.minImageExtent.width, caps.maxImageExtent.width);
+    if(caps.maxImageExtent.height) display_height_ = std::clamp(display_height_, caps.minImageExtent.height, caps.maxImageExtent.height);
 
     unsigned images = std::max(3u, caps.minImageCount);
     if(caps.maxImageCount) images = std::min(images, caps.maxImageCount);
@@ -951,6 +962,12 @@ void Context::recreate_swapchain(){
         preTransform = caps.currentTransform;
     }
 
+    VkCompositeAlphaFlagBitsKHR alpha_mode = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    if(caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) alpha_mode = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+    else if(caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) alpha_mode = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    else if(caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) alpha_mode = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
+    else if(caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR) alpha_mode = VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+
     VkSwapchainCreateInfoKHR swap{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     swap.surface = surface_;
     swap.minImageCount = images;
@@ -958,11 +975,10 @@ void Context::recreate_swapchain(){
     swap.imageColorSpace = surface_format_.colorSpace;
     swap.imageExtent = {display_width_, display_height_};
     swap.imageArrayLayers = 1;
-    swap.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    swap.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT);
     swap.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     swap.preTransform = preTransform;
-    swap.compositeAlpha = (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)?
-        VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR : VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    swap.compositeAlpha = alpha_mode;
     swap.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     swap.clipped = VK_TRUE;
     swap.oldSwapchain = surface_recreated ? VK_NULL_HANDLE : swapchain_;

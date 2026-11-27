@@ -74,7 +74,7 @@ private:
     vulkan::Context& context_;
     vulkan::Texture back_,back_depth_,msaa_colour_,msaa_depth_,fxaa_copy_,dummy2d_,dummycube_;
     std::map<std::uint32_t,vulkan::Texture> images_,depths_;
-    std::vector<Vertex> batch_; bool batch_rhw_{},ui_rect_{},fxaa_{},scene_finished_{},msaa_live_{};
+    std::vector<Vertex> batch_; bool batch_rhw_{},ui_rect_{},fxaa_{},scene_finished_{},msaa_live_{},uscaled_supported_{true};
     unsigned msaa_{1},gpu_active_queries_{};std::uint64_t frame_samples_{};bool frame_queries_{};
     // D3D9 occlusion queries over per-draw Vulkan queries. Results arrive when
     // the recordings holding their draws retire; GetData reports S_FALSE until

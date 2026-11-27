@@ -1,12 +1,17 @@
 #include <android/log.h>
 #include <SDL.h>
 #include <SDL_vulkan.h>
+#include <algorithm>
+#include <cctype>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <stdexcept>
 #include <string>
 #include <vector>
 #include <memory>
 #include <chrono>
+#include <mutex>
 #include <thread>
 #include <unistd.h>
 #include <pthread.h>
@@ -16,7 +21,10 @@
 #include "platform/pc_scene_renderer.hpp"
 #include "platform/native_runtime.hpp"
 #include "platform/retail_asset_store.hpp"
+#include "setup_display.hpp"
 #include "system/exe_image.hpp"
+#include "system/files.hpp"
+#include "system/setup_screen.hpp"
 #include "enhancements/gpu_backend.hpp"
 #include "enhancements/frame_rate.hpp"
 #include "enhancements/outrun2006_tweaks.hpp"
@@ -29,12 +37,43 @@
 #include <SDL_system.h>
 
 #define LOG_TAG "OutRun2006-Android"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 namespace rt = outrun::runtime;
 
 namespace {
+
+static std::mutex g_log_mutex;
+static std::FILE* g_log_file = nullptr;
+static std::string g_log_path;
+
+static void write_log_line(int prio, const char* tag, const char* fmt, ...) {
+    char buf[2048];
+    va_list args;
+    va_start(args, fmt);
+    std::vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    __android_log_print(prio, tag, "%s", buf);
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    if (g_log_file) {
+        std::fprintf(g_log_file, "[%s] %s\n", tag, buf);
+        std::fflush(g_log_file);
+    }
+}
+
+#define LOGI(...) write_log_line(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) write_log_line(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+static void open_persistent_log(const std::string& ext_dir) {
+    if (ext_dir.empty()) {
+        return;
+    }
+    outrun::platform::make_directory(ext_dir);
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    g_log_path = ext_dir + "/outrun2006.log";
+    if (!g_log_file) {
+        g_log_file = std::fopen(g_log_path.c_str(), "wb");
+    }
+}
 
 static SDL_GameController* s_active_controller = nullptr;
 static SDL_Haptic* s_active_haptic = nullptr;
@@ -102,6 +141,11 @@ static void* log_thread_func(void*) {
         if (buf[rdsz - 1] == '\n') --rdsz;
         buf[rdsz] = 0;
         __android_log_print(ANDROID_LOG_INFO, "OutRun2006-Decomp", "%s", buf);
+        std::lock_guard<std::mutex> lock(g_log_mutex);
+        if (g_log_file) {
+            std::fprintf(g_log_file, "[OutRun2006-Decomp] %s\n", buf);
+            std::fflush(g_log_file);
+        }
     }
     return nullptr;
 }
@@ -214,59 +258,188 @@ private:
     outrun::ps5_runtime::Ps5Audio audio_;
 };
 
-// Search list for OutRun 2006 PC data (supports any MicroSD UUID + internal/external app storage)
-std::string find_game_directory() {
-    std::vector<std::string> candidate_paths;
-    if (DIR* dir = opendir("/storage")) {
-        while (struct dirent* ent = readdir(dir)) {
-            const std::string name(ent->d_name);
-            if (name == "." || name == ".." || name == "emulated" || name == "self") {
-                continue;
-            }
-            candidate_paths.push_back("/storage/" + name + "/ROMs/ports/outrun2006");
-        }
-        closedir(dir);
+static bool android_file_exists(const std::string& path) {
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) {
+        return false;
     }
-    candidate_paths.push_back("/storage/emulated/0/ROMs/ports/outrun2006");
-    candidate_paths.push_back("/sdcard/ROMs/ports/outrun2006");
-    if (const char* ext = SDL_AndroidGetExternalStoragePath()) {
-        candidate_paths.push_back(std::string(ext));
-    }
-    candidate_paths.push_back("/sdcard/Android/data/org.outrun2.c2c/files");
+    std::fclose(f);
+    return true;
+}
 
-    for (const auto& path : candidate_paths) {
-        std::string check = path + "/" + outrun::platform::ExeImageCacheName;
-        std::FILE* f = std::fopen(check.c_str(), "rb");
-        if (f) {
-            std::fclose(f);
-            LOGI("Found valid game cache in: %s", path.c_str());
-            return path;
+static bool directory_has_exe(const std::string& dir) {
+    for (const auto& name : outrun::platform::directory_names(dir)) {
+        if (name.size() >= 4) {
+            std::string tail = name.substr(name.size() - 4);
+            for (char& c : tail) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (tail == ".exe") {
+                return true;
+            }
         }
     }
-    return candidate_paths.front(); // fallback
+    return false;
+}
+
+static std::string read_saved_game_path(const std::string& ext_dir) {
+    if (ext_dir.empty()) {
+        return {};
+    }
+    std::FILE* f = std::fopen((ext_dir + "/game_path.txt").c_str(), "rb");
+    if (!f) {
+        return {};
+    }
+    char buf[1024]{};
+    std::string out;
+    if (std::fgets(buf, sizeof(buf), f)) {
+        out = buf;
+    }
+    std::fclose(f);
+    while (!out.empty() && (out.back() == '\n' || out.back() == '\r' || out.back() == ' ' || out.back() == '\t')) {
+        out.pop_back();
+    }
+    return out;
+}
+
+static std::vector<std::string> build_candidate_paths(const std::string& ext_dir) {
+    std::vector<std::string> candidates;
+    auto push_unique = [&](const std::string& p) {
+        if (p.empty()) return;
+        std::string clean = p;
+        while (clean.size() > 1 && clean.back() == '/') clean.pop_back();
+        if (std::find(candidates.begin(), candidates.end(), clean) == candidates.end()) {
+            candidates.push_back(clean);
+        }
+    };
+
+    push_unique(read_saved_game_path(ext_dir));
+    const bool isolated_test = !ext_dir.empty() && android_file_exists(ext_dir + "/.isolated_test");
+    if (!isolated_test) {
+        if (DIR* dir = opendir("/storage")) {
+            while (struct dirent* ent = readdir(dir)) {
+                const std::string name(ent->d_name);
+                if (name == "." || name == ".." || name == "emulated" || name == "self") {
+                    continue;
+                }
+                push_unique("/storage/" + name + "/ROMs/ports/outrun2006");
+            }
+            closedir(dir);
+        }
+        push_unique("/storage/emulated/0/ROMs/ports/outrun2006");
+        push_unique("/sdcard/ROMs/ports/outrun2006");
+    }
+    push_unique(ext_dir);
+    if (!isolated_test) {
+        push_unique("/sdcard/Android/data/org.outrun2.c2c/files");
+    }
+    return candidates;
+}
+
+static bool select_game_directory(const std::string& ext_dir, std::string& out_dir, std::vector<std::string>& checked_paths) {
+    checked_paths = build_candidate_paths(ext_dir);
+    for (const auto& path : checked_paths) {
+        const bool has_cache = android_file_exists(path + "/" + outrun::platform::ExeImageCacheName);
+        if (outrun::platform::retail_asset_store_is_game_root(path) && (has_cache || directory_has_exe(path))) {
+            out_dir = path;
+            return true;
+        }
+    }
+    for (const auto& path : checked_paths) {
+        if (outrun::platform::retail_asset_store_is_game_root(path)) {
+            out_dir = path;
+            return true;
+        }
+    }
+    for (const auto& path : checked_paths) {
+        if (android_file_exists(path + "/" + outrun::platform::ExeImageCacheName) || directory_has_exe(path)) {
+            out_dir = path;
+            return true;
+        }
+    }
+    out_dir.clear();
+    return false;
+}
+
+static bool android_has_all_files_access() {
+    JNIEnv* env = reinterpret_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = reinterpret_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) {
+        return true;
+    }
+    jclass cls = env->GetObjectClass(activity);
+    jmethodID mid = cls ? env->GetStaticMethodID(cls, "hasAllFilesAccess", "()Z") : nullptr;
+    bool granted = true;
+    if (mid) {
+        granted = env->CallStaticBooleanMethod(cls, mid) == JNI_TRUE;
+        if (env->ExceptionCheck()) env->ExceptionClear();
+    }
+    if (cls) env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+    return granted;
+}
+
+static std::string android_show_startup_prompt(const std::string& title, const std::string& message, bool show_grant_storage) {
+    JNIEnv* env = reinterpret_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = reinterpret_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) {
+        return "EXIT";
+    }
+    jclass cls = env->GetObjectClass(activity);
+    jmethodID mid = cls ? env->GetStaticMethodID(cls, "showStartupPrompt", "(Ljava/lang/String;Ljava/lang/String;Z)Ljava/lang/String;") : nullptr;
+    std::string out = "EXIT";
+    if (mid) {
+        jstring jtitle = env->NewStringUTF(title.c_str());
+        jstring jmsg = env->NewStringUTF(message.c_str());
+        jstring jres = reinterpret_cast<jstring>(env->CallStaticObjectMethod(cls, mid, jtitle, jmsg, show_grant_storage ? JNI_TRUE : JNI_FALSE));
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        } else if (jres) {
+            const char* chars = env->GetStringUTFChars(jres, nullptr);
+            if (chars) {
+                out = chars;
+                env->ReleaseStringUTFChars(jres, chars);
+            }
+            env->DeleteLocalRef(jres);
+        }
+        if (jtitle) env->DeleteLocalRef(jtitle);
+        if (jmsg) env->DeleteLocalRef(jmsg);
+    }
+    if (cls) env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+    return out;
 }
 
 } // namespace
 
 extern "C" int SDL_main(int argc, char* argv[]) {
+    (void)argc;
+    (void)argv;
+    const char* ext_cstr = SDL_AndroidGetExternalStoragePath();
+    const std::string ext_dir = (ext_cstr && *ext_cstr) ? std::string(ext_cstr) : std::string("/sdcard/Android/data/org.outrun2.c2c/files");
+    open_persistent_log(ext_dir);
     redirect_stdout_to_logcat();
 
     LOGI("==========================================");
     LOGI("OutRun 2006 Coast 2 Coast - Android Native");
     LOGI("==========================================");
+    if (!g_log_path.empty()) {
+        LOGI("Persistent log path: %s", g_log_path.c_str());
+    }
 
     rt::product() = {"OutRun 2006 Coast 2 Coast", "outrun2006.log"};
-    rt::home() = find_game_directory();
-    LOGI("Application home set to: %s", rt::home().c_str());
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC) < 0) {
         LOGE("Failed to initialize SDL: %s", SDL_GetError());
+        android_show_startup_prompt("Initialization Error", std::string("SDL initialization failed: ") + SDL_GetError(), false);
         return 1;
     }
 
-    // Retroid Pocket 5 display resolution: 1920x1080
-    const int target_w = 1920;
-    const int target_h = 1080;
+    SDL_DisplayMode dm{};
+    int target_w = 1920;
+    int target_h = 1080;
+    if (SDL_GetCurrentDisplayMode(0, &dm) == 0 && dm.w > 0 && dm.h > 0) {
+        target_w = std::min(1920, std::max(dm.w, dm.h));
+        target_h = std::min(1080, std::min(dm.w, dm.h));
+    }
 
     SDL_Window* window = SDL_GL_GetCurrentWindow();
     if (!window) {
@@ -285,10 +458,19 @@ extern "C" int SDL_main(int argc, char* argv[]) {
 
     if (!window) {
         LOGE("Failed to create or acquire SDL window: %s", SDL_GetError());
-        std::exit(1);
+        android_show_startup_prompt("Window Error", std::string("Failed to create Vulkan window: ") + SDL_GetError(), false);
+        SDL_Quit();
+        return 1;
     }
 
-    LOGI("Created 1080p Vulkan fullscreen window");
+    int draw_w = target_w;
+    int draw_h = target_h;
+    SDL_Vulkan_GetDrawableSize(window, &draw_w, &draw_h);
+    if (draw_w > 0 && draw_h > 0) {
+        target_w = std::min(1920, draw_w);
+        target_h = std::min(1080, draw_h);
+    }
+    LOGI("Created Vulkan fullscreen window (%dx%d)", target_w, target_h);
     outrun::ps5_runtime::vulkan::set_android_window(window);
 
     // Gamepad controller detection
@@ -453,103 +635,209 @@ extern "C" int SDL_main(int argc, char* argv[]) {
         return p;
     };
 
-    // Load OR2006C2C.cache into the EXE image system
-    std::string cache_path = rt::home() + "/" + outrun::platform::ExeImageCacheName;
-    std::string cache_err;
-    LOGI("Loading cache from: %s", cache_path.c_str());
-    if (!outrun::platform::exe_image_load_cache(cache_path, &cache_err)) {
-        LOGE("Failed to load OR2006C2C.cache: %s", cache_err.c_str());
-        return 18;
-    }
-    LOGI("OR2006C2C.cache successfully loaded into memory!");
-
-    // Apply complete emoose/OutRun2006Tweaks suite to game image
-    outrun::enhancements::apply_outrun2006_tweaks();
-
-    outrun::platform::NativeRuntimeContext context{};
-    diag.runtime = &context;
-
-    outrun::platform::RetailAssetStore retail{};
-    std::string retail_error;
-    std::string retail_root = rt::home();
-
-    LOGI("Opening retail asset store at: %s", retail_root.c_str());
-    if (!outrun::platform::retail_asset_store_open(retail, retail_root, &retail_error)) {
-        LOGE("Failed to open retail asset store: %s", retail_error.c_str());
-        std::exit(4);
-    }
-
-    rt::GameData data{};
-    std::uint32_t fail_code = 0;
-    const char* fail_phase = nullptr;
-
-    LOGI("Loading OutRun 2006 game assets from: %s", retail_root.c_str());
-    if (!rt::load_game_data(context, retail, retail_root, data,
-        [](const std::string& line) {
-            LOGI("AssetLoader: %s", line.c_str());
-        }, fail_code, fail_phase, retail_error)) {
-        LOGE("Failed to load game assets (phase %s, code %u): %s", fail_phase, fail_code, retail_error.c_str());
-        std::exit(int(fail_code));
-    }
-    LOGI("Game assets loaded successfully!");
-
     // Enable persistent Vulkan pipeline cache in app-private internal storage
     if (!std::getenv("OR2_PS5_VK_CACHE")) {
         const char* internal_dir = SDL_AndroidGetInternalStoragePath();
-        const std::string vk_cache_dir = (internal_dir && *internal_dir) ? std::string(internal_dir) : rt::home();
+        const std::string vk_cache_dir = (internal_dir && *internal_dir) ? std::string(internal_dir) : ext_dir;
         const std::string vk_cache_path = vk_cache_dir + "/vulkan-pipelines.cache";
         setenv("OR2_PS5_VK_CACHE", vk_cache_path.c_str(), 1);
         LOGI("Vulkan pipeline cache path: %s", vk_cache_path.c_str());
     }
 
-    outrun::ps5_runtime::Ps5Renderer renderer{};
-    std::string renderer_error;
-    if (!outrun::ps5_runtime::ps5_renderer_initialize(renderer, nullptr, renderer_error, &data.start_loading, nullptr, nullptr, nullptr)) {
-        LOGE("Renderer initialization failed: %s", renderer_error.c_str());
-        std::exit(5);
+    for (;;) {
+        std::string retail_root;
+        std::vector<std::string> checked_paths;
+        const bool has_storage = android_has_all_files_access();
+        if (!select_game_directory(ext_dir, retail_root, checked_paths)) {
+            std::string msg = "No OutRun 2006 Coast 2 Coast (Steam PC) installation was found.\n\n";
+            if (!has_storage) {
+                msg += "All Files Access is currently disabled. Tap 'All Files Access' to allow scanning MicroSD and ROM folders, or tap 'Choose Folder' to select your OutRun 2006 folder.\n\n";
+            } else {
+                msg += "Copy your Steam PC OutRun 2006 folder (OR2006C2C.EXE + Cars, Stage, Media, Scripts, Sprite) to one of these paths or tap 'Choose Folder':\n";
+            }
+            for (const auto& p : checked_paths) {
+                msg += "- " + p + "\n";
+            }
+            if (!g_log_path.empty()) {
+                msg += "\nLog: " + g_log_path;
+            }
+            LOGE("No game folder found (has_all_files_access=%d)", int(has_storage));
+            if (android_show_startup_prompt("Game Files Not Found", msg, !has_storage) != "RETRY") {
+                break;
+            }
+            continue;
+        }
+
+        rt::home() = retail_root;
+        diag.save_directory = retail_root + "/SaveGame";
+        LOGI("Selected game root: %s", retail_root.c_str());
+
+        bool retry_requested = false;
+        try {
+            // Prepare OR2006C2C.EXE -> OR2006C2C.cache on first launch (or load existing cache)
+            {
+                outrun::ps5_runtime::SetupDisplay setup_display;
+                auto setup = setup_display.platform();
+                setup.keep_running = [] {
+                    SDL_PumpEvents();
+                    return true;
+                };
+                std::string setup_err;
+                const bool ready = outrun::platform::exe_setup_prepare(retail_root, ext_dir, setup, &setup_err);
+                setup_display.close();
+                if (!ready) {
+                    LOGE("EXE setup failed in %s: %s", retail_root.c_str(), setup_err.c_str());
+                    std::string msg = "Could not verify OR2006C2C.EXE from:\n" + retail_root + "\n\n" + setup_err +
+                                      "\n\nPlace your Steam PC OR2006C2C.EXE (or generated OR2006C2C.cache) inside the game folder, or tap 'Choose Folder'.";
+                    if (!g_log_path.empty()) msg += "\n\nLog: " + g_log_path;
+                    if (android_show_startup_prompt("OR2006C2C.EXE Setup Error", msg, !has_storage) == "RETRY") {
+                        retry_requested = true;
+                        continue;
+                    }
+                    break;
+                }
+            }
+            LOGI("EXE image prepared and loaded into memory!");
+
+            // Apply complete emoose/OutRun2006Tweaks suite to game image
+            outrun::enhancements::apply_outrun2006_tweaks();
+
+            auto context_owner = std::make_unique<outrun::platform::NativeRuntimeContext>();
+            auto& context = *context_owner;
+            diag.runtime = &context;
+
+            outrun::platform::RetailAssetStore retail{};
+            std::string retail_error;
+            LOGI("Opening retail asset store at: %s", retail_root.c_str());
+            if (!outrun::platform::retail_asset_store_open(retail, retail_root, &retail_error)) {
+                LOGE("Failed to open retail asset store: %s", retail_error.c_str());
+                std::string msg = "Missing PC game asset folders in:\n" + retail_root + "\n\n" + retail_error +
+                                  "\n\nEnsure Cars/, Scripts/, Stage/, and Sprite/ from your Steam OutRun 2006 copy are present.";
+                if (!g_log_path.empty()) msg += "\n\nLog: " + g_log_path;
+                if (android_show_startup_prompt("Game Assets Missing", msg, !has_storage) == "RETRY") {
+                    retry_requested = true;
+                    continue;
+                }
+                break;
+            }
+
+            auto data_owner = std::make_unique<rt::GameData>();
+            auto& data = *data_owner;
+            std::uint32_t fail_code = 0;
+            const char* fail_phase = nullptr;
+            LOGI("Loading OutRun 2006 game assets from: %s", retail_root.c_str());
+            if (!rt::load_game_data(context, retail, retail_root, data,
+                [](const std::string& line) {
+                    LOGI("AssetLoader: %s", line.c_str());
+                }, fail_code, fail_phase, retail_error)) {
+                LOGE("Failed to load game assets (phase %s, code %u): %s",
+                     fail_phase ? fail_phase : "?", fail_code, retail_error.c_str());
+                std::string msg = "Asset load failed in:\n" + retail_root + "\n(" +
+                                  (fail_phase ? std::string(fail_phase) : std::string("load")) + "): " + retail_error;
+                if (!g_log_path.empty()) msg += "\n\nLog: " + g_log_path;
+                if (android_show_startup_prompt("Asset Load Error", msg, !has_storage) == "RETRY") {
+                    retry_requested = true;
+                    continue;
+                }
+                break;
+            }
+            LOGI("Game assets loaded successfully!");
+
+            outrun::ps5_runtime::Ps5Renderer renderer{};
+            std::string renderer_error;
+            if (!outrun::ps5_runtime::ps5_renderer_initialize(renderer, nullptr, renderer_error, &data.start_loading, nullptr, nullptr, nullptr)) {
+                LOGE("Renderer initialization failed: %s", renderer_error.c_str());
+                std::string msg = "Vulkan renderer initialization failed:\n" + renderer_error;
+                if (!g_log_path.empty()) msg += "\n\nLog: " + g_log_path;
+                if (android_show_startup_prompt("Vulkan Renderer Error", msg, false) == "RETRY") {
+                    retry_requested = true;
+                    continue;
+                }
+                break;
+            }
+
+            // Set widescreen Vulkan presentation
+            outrun::ps5_runtime::ps5_renderer_set_video(renderer, target_w, target_h, true, 1, false);
+
+            if (!rt::bind_frontend_timing(context.event_function36.frontend_sprites, data) ||
+                !outrun::ps5_runtime::ps5_renderer_attach_frontend_sprites(renderer, context.event_function36.frontend_sprites)) {
+                LOGE("Failed to attach frontend sprites!");
+                outrun::ps5_runtime::ps5_renderer_shutdown(renderer);
+                if (android_show_startup_prompt("Renderer Error", "Failed to attach frontend sprites.", false) == "RETRY") {
+                    retry_requested = true;
+                    continue;
+                }
+                break;
+            }
+
+            if (auto* pc_device = outrun::ps5_runtime::ps5_renderer_pc_device(renderer)) {
+                rt::attach_pc_scene(diag, context, retail, *pc_device);
+                outrun::ps5_runtime::ps5_renderer_set_pc_sprites(renderer, true);
+                outrun::ps5_runtime::ps5_renderer_set_pc_text(renderer, true);
+            }
+
+            AndroidPresenter presenter(renderer, diag, context);
+            diag.presenter = &presenter;
+
+            rt::RuntimeBinding binding{};
+            if (!rt::bind_runtime(diag, context, binding)) {
+                LOGE("Failed to bind runtime!");
+                outrun::ps5_runtime::ps5_renderer_shutdown(renderer);
+                if (android_show_startup_prompt("Runtime Error", "Failed to bind native runtime services.", false) == "RETRY") {
+                    retry_requested = true;
+                    continue;
+                }
+                break;
+            }
+
+            rt::FrontendSession fe{};
+            const char* fe_phase = nullptr;
+            std::string fe_error;
+            if (!rt::open_frontend(diag, context, retail, &data.fonts, fe, fe_phase, fe_error)) {
+                LOGE("Failed to open frontend: %s", fe_error.c_str());
+                outrun::ps5_runtime::ps5_renderer_shutdown(renderer);
+                std::string msg = "Failed to open frontend (" + std::string(fe_phase ? fe_phase : "?") + "): " + fe_error;
+                if (!g_log_path.empty()) msg += "\n\nLog: " + g_log_path;
+                if (android_show_startup_prompt("Frontend Error", msg, false) == "RETRY") {
+                    retry_requested = true;
+                    continue;
+                }
+                break;
+            }
+
+            (void)outrun::ps5_runtime::ps5_renderer_set_frontend_visible(renderer, false);
+
+            LOGI("Starting native OutRun 2006 runtime engine loop!");
+            const auto rc = outrun::platform::run_native_runtime(context, binding.services);
+            LOGI("Runtime loop completed with return code: %u (render_failed=%d audio_open=%d movie_err=%s music_err=%s)",
+                 rc, int(diag.render_failed), int(diag.audio_open), diag.movie_error.c_str(), diag.music_error.c_str());
+
+            rt::close_frontend(diag, context, fe);
+            outrun::ps5_runtime::ps5_renderer_shutdown(renderer);
+            break;
+        } catch (const std::exception& e) {
+            LOGE("Unhandled C++ exception during startup/runtime: %s", e.what());
+            std::string msg = std::string("Unexpected error:\n") + e.what();
+            if (!g_log_path.empty()) msg += "\n\nLog: " + g_log_path;
+            if (android_show_startup_prompt("Runtime Exception", msg, false) == "RETRY") {
+                retry_requested = true;
+                continue;
+            }
+            break;
+        } catch (...) {
+            LOGE("Unhandled unknown exception during startup/runtime");
+            std::string msg = "Unexpected fatal error during startup.";
+            if (!g_log_path.empty()) msg += "\n\nLog: " + g_log_path;
+            if (android_show_startup_prompt("Runtime Exception", msg, false) == "RETRY") {
+                retry_requested = true;
+                continue;
+            }
+            break;
+        }
+        if (!retry_requested) {
+            break;
+        }
     }
-
-    // Set 1080p widescreen Vulkan presentation
-    outrun::ps5_runtime::ps5_renderer_set_video(renderer, target_w, target_h, true, 1, false);
-
-    if (!rt::bind_frontend_timing(context.event_function36.frontend_sprites, data) ||
-        !outrun::ps5_runtime::ps5_renderer_attach_frontend_sprites(renderer, context.event_function36.frontend_sprites)) {
-        LOGE("Failed to attach frontend sprites!");
-        std::exit(5);
-    }
-
-    if (auto* pc_device = outrun::ps5_runtime::ps5_renderer_pc_device(renderer)) {
-        rt::attach_pc_scene(diag, context, retail, *pc_device);
-        outrun::ps5_runtime::ps5_renderer_set_pc_sprites(renderer, true);
-        outrun::ps5_runtime::ps5_renderer_set_pc_text(renderer, true);
-    }
-
-    AndroidPresenter presenter(renderer, diag, context);
-    diag.presenter = &presenter;
-
-    rt::RuntimeBinding binding{};
-    if (!rt::bind_runtime(diag, context, binding)) {
-        LOGE("Failed to bind runtime!");
-        std::exit(6);
-    }
-
-    rt::FrontendSession fe{};
-    const char* fe_phase = nullptr;
-    std::string fe_error;
-    if (!rt::open_frontend(diag, context, retail, &data.fonts, fe, fe_phase, fe_error)) {
-        LOGE("Failed to open frontend: %s", fe_error.c_str());
-        std::exit(7);
-    }
-
-    (void)outrun::ps5_runtime::ps5_renderer_set_frontend_visible(renderer, false);
-
-    LOGI("Starting native OutRun 2006 runtime engine loop!");
-    const auto rc = outrun::platform::run_native_runtime(context, binding.services);
-    LOGI("Runtime loop completed with return code: %u (render_failed=%d audio_open=%d movie_err=%s music_err=%s)",
-         rc, int(diag.render_failed), int(diag.audio_open), diag.movie_error.c_str(), diag.music_error.c_str());
-
-    rt::close_frontend(diag, context, fe);
-    outrun::ps5_runtime::ps5_renderer_shutdown(renderer);
 
     trigger_android_haptics(0.0f, 0.0f, true);
     audio.close();
@@ -565,5 +853,5 @@ extern "C" int SDL_main(int argc, char* argv[]) {
     SDL_DestroyWindow(window);
     SDL_Quit();
 
-    std::exit(0);
+    return 0;
 }

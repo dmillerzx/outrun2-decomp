@@ -23,22 +23,17 @@ Optimized for modern Android handheld gaming consoles, specifically the **Retroi
 
 ## Game Data Setup
 
-This port requires original game assets from the PC retail / Steam release of *OutRun 2006 Coast 2 Coast*.
+This port requires original game assets from the **Steam** PC release of *OutRun 2006 Coast 2 Coast* (`OR2006C2C.EXE`, `Cars/`, `Stage/`, `Media/`, `Scripts/`, `Sprite/`, etc.).
 
-1. Install the standalone APK on your device:
-   ```bash
-   adb install -r outrun2-c2c-android.apk
-   ```
-2. Grant storage permissions:
-   ```bash
-   adb shell appops set org.outrun2.c2c MANAGE_EXTERNAL_STORAGE allow
-   ```
-3. Copy your PC game installation folder (containing `OR2006C2C.EXE`, `Media/`, `Sound/`, etc.) to one of the following paths on your device:
+1. Install `outrun2-c2c-android-v1.0.7-preview.apk` on your device.
+2. Copy your Steam PC game installation folder to any of these auto-scanned paths (or anywhere you prefer and pick it via **Choose Folder** inside the first-launch prompt):
    - MicroSD: `/storage/<SD_ID>/ROMs/ports/outrun2006/`
    - Internal Storage: `/sdcard/ROMs/ports/outrun2006/`
-   - Scoped App Storage: `/sdcard/Android/data/org.outrun2.c2c/files/`
-
-On the very first launch, the port reads code tables and constants directly from `OR2006C2C.EXE`, verifies SHA-256 hashes, and generates `OR2006C2C.cache` in the game folder. Subsequent launches boot instantly from cache.
+   - App-Private Storage: `/sdcard/Android/data/org.outrun2.c2c/files/` *(requires no `MANAGE_EXTERNAL_STORAGE` grant)*
+3. Launch the app:
+   - If you stored files in MicroSD or `/sdcard/ROMs/...`, tap **All Files Access** (or **Choose Folder**) when prompted.
+   - On very first launch, the app unpacks and verifies `OR2006C2C.EXE` against SHA-256 hashes and generates `OR2006C2C.cache` automatically.
+   - Diagnostics are always written to `/sdcard/Android/data/org.outrun2.c2c/files/outrun2006.log`.
 
 ---
 

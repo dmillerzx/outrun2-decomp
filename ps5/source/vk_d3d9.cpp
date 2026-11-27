@@ -11,6 +11,9 @@ using namespace vulkan;
 using namespace platform::d3d9;
 VulkanD3D9Device::VulkanD3D9Device(Context& context,unsigned w,unsigned h,bool frame_queries):PcSoftD3D9Device(w,h),context_(context),frame_queries_(frame_queries){
     static_assert(sizeof(Vertex)==180,"Vulkan vertex layout must match recovered vertex records");
+    VkFormatProperties uscaled_props{};
+    vkGetPhysicalDeviceFormatProperties(context_.physical_device(), VK_FORMAT_R8G8B8A8_USCALED, &uscaled_props);
+    uscaled_supported_ = (uscaled_props.bufferFeatures & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT) != 0;
     retire_listener_=context_.add_retire_listener([this](std::uint64_t epoch,const std::vector<std::uint64_t>& samples){retire_queries(epoch,samples);});
     resize_back_buffer(w,h);dummy2d_=context_.image(1,1);dummycube_=context_.image(1,1,1,6);
     const unsigned char black[4]{0,0,0,255};context_.upload(dummy2d_,0,0,black,4);
@@ -115,7 +118,7 @@ bool VulkanD3D9Device::prepare_native(std::uint32_t type,std::int32_t base,std::
     constexpr VkFormat formats[]{VK_FORMAT_R32_SFLOAT,VK_FORMAT_R32G32_SFLOAT,VK_FORMAT_R32G32B32_SFLOAT,VK_FORMAT_R32G32B32A32_SFLOAT,VK_FORMAT_R8G8B8A8_UNORM,VK_FORMAT_R8G8B8A8_USCALED};
     for(const auto& e:decl->elements){
         if(e.stream==platform::PcDeclEndStream)break;
-        if(e.type>5||e.stream>=streams.size())return false;
+        if(e.type>5||(e.type==5&&!uscaled_supported_)||e.stream>=streams.size())return false;
         const auto& stream=streams[e.stream];auto* buffer=object(stream.buffer);if(!buffer)return false;
         const unsigned need=e.type<=3?4u*(e.type+1):4u;
         if(std::uint64_t(stream.offset)+std::uint64_t(std::int64_t(base)+high)*stream.stride+e.offset+need>buffer->bytes.size())return false;

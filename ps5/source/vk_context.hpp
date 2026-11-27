@@ -109,6 +109,7 @@ public:
     void present();
     VkPipelineLayout pipeline_layout()const{return pipeline_layout_;}
     VkDevice device()const{return device_;}
+    VkPhysicalDevice physical_device()const{return physical_;}
     unsigned display_width()const{return display_width_;}
     unsigned display_height()const{return display_height_;}
     unsigned max_samples()const{return max_samples_;}
