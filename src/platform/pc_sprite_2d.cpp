@@ -721,21 +721,65 @@ void pc_sprite_canvas_429010(PcSprite2dState& s,driving::PcMatrixStack& st,std::
 }
 #if defined(OR2_ANDROID)
 namespace {
+float seg_dist(float px, float py, float ax, float ay, float bx, float by) {
+    const float vx = bx - ax, vy = by - ay;
+    const float wx = px - ax, wy = py - ay;
+    const float len2 = vx * vx + vy * vy;
+    const float t = (len2 > 0.0f) ? std::clamp((wx * vx + wy * vy) / len2, 0.0f, 1.0f) : 0.0f;
+    const float dx = px - (ax + t * vx);
+    const float dy = py - (ay + t * vy);
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+float abxy_glyph_sdf(int idx, float px, float py) {
+    // 0: Y, 1: X, 2: B, 3: A in normalized [-1, 1] button space.
+    float d = 10.0f;
+    if (idx == 0) { // Y
+        d = std::min(d, seg_dist(px, py, -0.31f, -0.41f, 0.0f, 0.02f));
+        d = std::min(d, seg_dist(px, py,  0.31f, -0.41f, 0.0f, 0.02f));
+        d = std::min(d, seg_dist(px, py,  0.0f,   0.02f, 0.0f, 0.42f));
+    } else if (idx == 1) { // X
+        d = std::min(d, seg_dist(px, py, -0.30f, -0.41f,  0.30f, 0.41f));
+        d = std::min(d, seg_dist(px, py,  0.30f, -0.41f, -0.30f, 0.41f));
+    } else if (idx == 2) { // B
+        d = std::min(d, seg_dist(px, py, -0.26f, -0.41f, -0.26f, 0.41f));
+        d = std::min(d, seg_dist(px, py, -0.26f, -0.41f,  0.06f, -0.41f));
+        d = std::min(d, seg_dist(px, py, -0.26f,  0.00f,  0.06f,  0.00f));
+        d = std::min(d, seg_dist(px, py, -0.26f,  0.41f,  0.08f,  0.41f));
+        if (px >= 0.06f) {
+            d = std::min(d, std::abs(std::hypot(px - 0.06f, py + 0.205f) - 0.205f));
+        } else {
+            d = std::min(d, std::hypot(px - 0.06f, std::abs(py + 0.205f) - 0.205f));
+        }
+        if (px >= 0.08f) {
+            d = std::min(d, std::abs(std::hypot(px - 0.08f, py - 0.205f) - 0.205f));
+        } else {
+            d = std::min(d, std::hypot(px - 0.08f, std::abs(py - 0.205f) - 0.205f));
+        }
+    } else { // A
+        d = std::min(d, seg_dist(px, py, 0.0f, -0.41f, -0.32f, 0.41f));
+        d = std::min(d, seg_dist(px, py, 0.0f, -0.41f,  0.32f, 0.41f));
+        d = std::min(d, seg_dist(px, py, -0.19f, 0.14f,  0.19f, 0.14f));
+    }
+    return d - 0.095f;
+}
+
 std::uint32_t build_abxy_badge_texture(PcD3D9Device& device, int idx) {
-    // 0: Y (yellow), 1: X (blue), 2: B (red), 3: A (green)
-    constexpr std::uint8_t kColors[4][3] = {
-        {240, 192, 16},  // Y: gold/yellow
-        {32, 120, 240},  // X: Xbox blue
-        {224, 48, 48},   // B: Xbox red
-        {48, 184, 72},   // A: Xbox green
+    // 0: Y (amber/gold), 1: X (blue), 2: B (red), 3: A (green)
+    // Glossy 3D Xbox-style jewel buttons matching OutRun 2006's frontend artwork.
+    constexpr float kTopRgb[4][3] = {
+        {1.00f, 0.84f, 0.12f}, // Y
+        {0.18f, 0.58f, 1.00f}, // X
+        {0.96f, 0.20f, 0.18f}, // B
+        {0.24f, 0.84f, 0.30f}, // A
     };
-    static constexpr std::uint8_t kGlyphs[4][7] = {
-        {0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100}, // Y
-        {0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001}, // X
-        {0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110}, // B
-        {0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001}, // A
+    constexpr float kBotRgb[4][3] = {
+        {0.72f, 0.46f, 0.02f}, // Y
+        {0.05f, 0.22f, 0.62f}, // X
+        {0.54f, 0.05f, 0.07f}, // B
+        {0.07f, 0.42f, 0.12f}, // A
     };
-    constexpr unsigned W = 32, H = 32;
+    constexpr unsigned W = 128, H = 128;
     std::vector<std::uint8_t> dds(128 + W * H * 4, 0);
     auto put32 = [&](std::size_t off, std::uint32_t v) { std::memcpy(dds.data() + off, &v, 4); };
     std::memcpy(dds.data(), "DDS ", 4);
@@ -753,40 +797,91 @@ std::uint32_t build_abxy_badge_texture(PcD3D9Device& device, int idx) {
     put32(104, 0xff000000u);          // A mask
     put32(108, 0x1000u);              // DDSCAPS_TEXTURE
 
-    const std::uint8_t* rgb = kColors[idx];
+    constexpr float kRadius = 56.0f;
+    constexpr float kCenter = 63.5f;
     for (unsigned y = 0; y < H; ++y) {
         for (unsigned x = 0; x < W; ++x) {
-            const float dx = float(x) - 15.5f;
-            const float dy = float(y) - 15.5f;
-            const float r = std::sqrt(dx * dx + dy * dy);
-            std::uint8_t* px = dds.data() + 128 + (y * W + x) * 4;
-            if (r > 14.5f) {
-                continue; // transparent outside badge
-            }
-            float alpha = std::clamp(14.5f - r, 0.0f, 1.0f);
-            const bool border = (r >= 12.2f);
-            bool glyph = false;
-            if (x >= 11 && x < 21 && y >= 9 && y < 23) {
-                const int gx = int(x - 11) / 2;
-                const int gy = int(y - 9) / 2;
-                if (gx >= 0 && gx < 5 && gy >= 0 && gy < 7) {
-                    glyph = ((kGlyphs[idx][gy] >> (4 - gx)) & 1) != 0;
+            float acc_r = 0.0f, acc_g = 0.0f, acc_b = 0.0f, acc_a = 0.0f;
+            for (int sy = 0; sy < 4; ++sy) {
+                for (int sx = 0; sx < 4; ++sx) {
+                    const float px = (float(x) + (float(sx) + 0.5f) * 0.25f - kCenter) / kRadius;
+                    const float py = (float(y) + (float(sy) + 0.5f) * 0.25f - kCenter) / kRadius;
+                    const float r = std::hypot(px, py);
+                    const float sh_r = std::hypot(px, py - 0.08f);
+
+                    float sr = 0.0f, sg = 0.0f, sb = 0.0f, sa = 0.0f;
+                    // Soft drop shadow beneath the jewel.
+                    if (sh_r < 1.06f) {
+                        const float s_fall = std::clamp((1.06f - sh_r) / 0.16f, 0.0f, 1.0f);
+                        sa = s_fall * s_fall * 0.55f;
+                    }
+                    if (r <= 1.0f) {
+                        // Outer dark metallic bezel [0.85 .. 1.00].
+                        const float rim_t = std::clamp(0.5f - py * 0.5f, 0.0f, 1.0f);
+                        float br = 0.06f + 0.16f * rim_t;
+                        float bg = 0.06f + 0.16f * rim_t;
+                        float bb = 0.07f + 0.18f * rim_t;
+                        if (r < 0.85f) {
+                            // 3D domed colored jewel body.
+                            const float dome_r = r / 0.85f;
+                            const float grad = std::clamp(0.55f - py * 0.48f - dome_r * dome_r * 0.22f, 0.0f, 1.0f);
+                            br = kBotRgb[idx][0] + (kTopRgb[idx][0] - kBotRgb[idx][0]) * grad;
+                            bg = kBotRgb[idx][1] + (kTopRgb[idx][1] - kBotRgb[idx][1]) * grad;
+                            bb = kBotRgb[idx][2] + (kTopRgb[idx][2] - kBotRgb[idx][2]) * grad;
+
+                            // Inner subtle rim bevel.
+                            const float inner_rim = std::clamp((dome_r - 0.88f) / 0.12f, 0.0f, 1.0f);
+                            br *= (1.0f - inner_rim * 0.35f);
+                            bg *= (1.0f - inner_rim * 0.35f);
+                            bb *= (1.0f - inner_rim * 0.35f);
+
+                            // Glossy top glass specular highlight.
+                            const float hx = px / 0.62f;
+                            const float hy = (py + 0.34f) / 0.34f;
+                            const float hdist = std::hypot(hx, hy);
+                            if (hdist < 1.0f) {
+                                const float gloss = std::pow(1.0f - hdist * hdist, 1.35f) * 0.52f;
+                                br = br + (1.0f - br) * gloss;
+                                bg = bg + (1.0f - bg) * gloss;
+                                bb = bb + (1.0f - bb) * gloss;
+                            }
+
+                            // Crisp vector-SDF letter with subtle dark drop shadow.
+                            const float g_sh = abxy_glyph_sdf(idx, px, py - 0.055f);
+                            if (g_sh < 0.03f) {
+                                const float sh_cov = std::clamp((0.03f - g_sh) / 0.05f, 0.0f, 1.0f) * 0.58f;
+                                br *= (1.0f - sh_cov);
+                                bg *= (1.0f - sh_cov);
+                                bb *= (1.0f - sh_cov);
+                            }
+                            const float g_sdf = abxy_glyph_sdf(idx, px, py);
+                            if (g_sdf < 0.015f) {
+                                const float cov = std::clamp((0.015f - g_sdf) / 0.03f, 0.0f, 1.0f);
+                                br = br + (0.98f - br) * cov;
+                                bg = bg + (0.98f - bg) * cov;
+                                bb = bb + (0.98f - bb) * cov;
+                            }
+                        }
+                        sr = br;
+                        sg = bg;
+                        sb = bb;
+                        sa = 1.0f;
+                    }
+                    acc_r += sr * sa;
+                    acc_g += sg * sa;
+                    acc_b += sb * sa;
+                    acc_a += sa;
                 }
             }
-            if (glyph) {
-                // Dark letter on yellow Y for contrast, crisp white on A/B/X
-                const std::uint8_t v = (idx == 0) ? 28u : 255u;
-                px[0] = v; px[1] = v; px[2] = v;
-            } else if (border) {
-                px[0] = std::uint8_t(rgb[2] * 0.55f);
-                px[1] = std::uint8_t(rgb[1] * 0.55f);
-                px[2] = std::uint8_t(rgb[0] * 0.55f);
-            } else {
-                px[0] = rgb[2];
-                px[1] = rgb[1];
-                px[2] = rgb[0];
+            std::uint8_t* out = dds.data() + 128 + (y * W + x) * 4;
+            const float avg_a = acc_a / 16.0f;
+            if (avg_a > 0.001f) {
+                const float inv = 1.0f / acc_a;
+                out[0] = std::uint8_t(std::clamp(acc_b * inv, 0.0f, 1.0f) * 255.0f + 0.5f);
+                out[1] = std::uint8_t(std::clamp(acc_g * inv, 0.0f, 1.0f) * 255.0f + 0.5f);
+                out[2] = std::uint8_t(std::clamp(acc_r * inv, 0.0f, 1.0f) * 255.0f + 0.5f);
+                out[3] = std::uint8_t(std::clamp(avg_a, 0.0f, 1.0f) * 255.0f + 0.5f);
             }
-            px[3] = std::uint8_t(alpha * 255.0f + 0.5f);
         }
     }
     PcTextureFileRequest q{};
@@ -821,14 +916,14 @@ bool draw_android_abxy_badge(PcSprite2dState& s, PcD3D9Device& d, std::uint32_t 
     wr32(rec.data() + 0x00, token);
     wr32(rec.data() + 0x04, 0u);
     wr32(rec.data() + 0x08, 0u);
-    wr32(rec.data() + 0x0c, 32u);
-    wr32(rec.data() + 0x10, 32u);
-    wr32(rec.data() + 0x14, ubits(0.625f));
-    wr32(rec.data() + 0x18, ubits(0.625f));
+    wr32(rec.data() + 0x0c, 128u);
+    wr32(rec.data() + 0x10, 128u);
+    wr32(rec.data() + 0x14, ubits(0.1640625f)); // 21px in 640x480 space
+    wr32(rec.data() + 0x18, ubits(0.1640625f));
     wr32(rec.data() + 0x24, ubits(320.0f + matrix[12]));
     wr32(rec.data() + 0x28, ubits(240.0f + matrix[13]));
     wr32(rec.data() + 0x2c, 0xffffffffu);
-    wr32(rec.data() + 0x34, 8u); // center-pivot
+    wr32(rec.data() + 0x34, 8u | 2u); // center-pivot; bit 2 cancels image_42a0a0's ^2 V-flip for top-down DDS
     wr32(rec.data() + 0x38, cached_tex[idx]);
     pc_image_record_42cfe0(s, rec, float(layer));
     return true;
