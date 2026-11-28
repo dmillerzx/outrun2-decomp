@@ -719,6 +719,123 @@ void pc_sprite_canvas_429010(PcSprite2dState& s,driving::PcMatrixStack& st,std::
     translate(x87_float(-X87(A)),x87_float(-X87(B)));
     s.blend_9564e0={0.0f,1.0f,1.0f};
 }
+#if defined(OR2_ANDROID)
+namespace {
+std::uint32_t build_abxy_badge_texture(PcD3D9Device& device, int idx) {
+    // 0: Y (yellow), 1: X (blue), 2: B (red), 3: A (green)
+    constexpr std::uint8_t kColors[4][3] = {
+        {240, 192, 16},  // Y: gold/yellow
+        {32, 120, 240},  // X: Xbox blue
+        {224, 48, 48},   // B: Xbox red
+        {48, 184, 72},   // A: Xbox green
+    };
+    static constexpr std::uint8_t kGlyphs[4][7] = {
+        {0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100}, // Y
+        {0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001}, // X
+        {0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110}, // B
+        {0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001}, // A
+    };
+    constexpr unsigned W = 32, H = 32;
+    std::vector<std::uint8_t> dds(128 + W * H * 4, 0);
+    auto put32 = [&](std::size_t off, std::uint32_t v) { std::memcpy(dds.data() + off, &v, 4); };
+    std::memcpy(dds.data(), "DDS ", 4);
+    put32(4, 124);                    // dwSize
+    put32(8, 0x00001007u);            // DDSD_CAPS | HEIGHT | WIDTH | PIXELFORMAT
+    put32(12, H);
+    put32(16, W);
+    put32(20, W * 4);                 // pitch
+    put32(76, 32);                    // ddspf.dwSize
+    put32(80, 0x41u);                 // DDPF_RGB | DDPF_ALPHAPIXELS
+    put32(88, 32);                    // dwRGBBitCount
+    put32(92, 0x00ff0000u);           // R mask (BGRA in memory)
+    put32(96, 0x0000ff00u);           // G mask
+    put32(100, 0x000000ffu);          // B mask
+    put32(104, 0xff000000u);          // A mask
+    put32(108, 0x1000u);              // DDSCAPS_TEXTURE
+
+    const std::uint8_t* rgb = kColors[idx];
+    for (unsigned y = 0; y < H; ++y) {
+        for (unsigned x = 0; x < W; ++x) {
+            const float dx = float(x) - 15.5f;
+            const float dy = float(y) - 15.5f;
+            const float r = std::sqrt(dx * dx + dy * dy);
+            std::uint8_t* px = dds.data() + 128 + (y * W + x) * 4;
+            if (r > 14.5f) {
+                continue; // transparent outside badge
+            }
+            float alpha = std::clamp(14.5f - r, 0.0f, 1.0f);
+            const bool border = (r >= 12.2f);
+            bool glyph = false;
+            if (x >= 11 && x < 21 && y >= 9 && y < 23) {
+                const int gx = int(x - 11) / 2;
+                const int gy = int(y - 9) / 2;
+                if (gx >= 0 && gx < 5 && gy >= 0 && gy < 7) {
+                    glyph = ((kGlyphs[idx][gy] >> (4 - gx)) & 1) != 0;
+                }
+            }
+            if (glyph) {
+                // Dark letter on yellow Y for contrast, crisp white on A/B/X
+                const std::uint8_t v = (idx == 0) ? 28u : 255u;
+                px[0] = v; px[1] = v; px[2] = v;
+            } else if (border) {
+                px[0] = std::uint8_t(rgb[2] * 0.55f);
+                px[1] = std::uint8_t(rgb[1] * 0.55f);
+                px[2] = std::uint8_t(rgb[0] * 0.55f);
+            } else {
+                px[0] = rgb[2];
+                px[1] = rgb[1];
+                px[2] = rgb[0];
+            }
+            px[3] = std::uint8_t(alpha * 255.0f + 0.5f);
+        }
+    }
+    PcTextureFileRequest q{};
+    q.data = dds.data();
+    q.size = dds.size();
+    q.width = W;
+    q.height = H;
+    q.mip_levels = 1;
+    q.format = 0;
+    q.pool = 1;
+    q.filter = 1;
+    q.mip_filter = 1;
+    return device.create_texture_from_file(q);
+}
+
+bool draw_android_abxy_badge(PcSprite2dState& s, PcD3D9Device& d, std::uint32_t token,
+                             const std::array<float, 16>& matrix, unsigned layer) {
+    if (token < 0x002c0138u || token > 0x002c013bu) return false;
+    static PcD3D9Device* cached_dev = nullptr;
+    static std::array<std::uint32_t, 4> cached_tex{};
+    if (cached_dev != &d) {
+        cached_dev = &d;
+        cached_tex = {};
+    }
+    const int idx = int(token - 0x002c0138u);
+    if (!cached_tex[idx]) {
+        cached_tex[idx] = build_abxy_badge_texture(d, idx);
+    }
+    if (!cached_tex[idx]) return false;
+
+    std::array<std::uint8_t, 0x48> rec{};
+    wr32(rec.data() + 0x00, token);
+    wr32(rec.data() + 0x04, 0u);
+    wr32(rec.data() + 0x08, 0u);
+    wr32(rec.data() + 0x0c, 32u);
+    wr32(rec.data() + 0x10, 32u);
+    wr32(rec.data() + 0x14, ubits(0.625f));
+    wr32(rec.data() + 0x18, ubits(0.625f));
+    wr32(rec.data() + 0x24, ubits(320.0f + matrix[12]));
+    wr32(rec.data() + 0x28, ubits(240.0f + matrix[13]));
+    wr32(rec.data() + 0x2c, 0xffffffffu);
+    wr32(rec.data() + 0x34, 8u); // center-pivot
+    wr32(rec.data() + 0x38, cached_tex[idx]);
+    pc_image_record_42cfe0(s, rec, float(layer));
+    return true;
+}
+} // namespace
+#endif
+
 // 428170 (see the header).
 void pc_sprite_pool_display_428170(PcSprite2dState& s,PcD3D9Device& d,driving::PcMatrixStack& st,FrontendSprites& pool){
     const auto& inst=pool.instances();
@@ -729,6 +846,13 @@ void pc_sprite_pool_display_428170(PcSprite2dState& s,PcD3D9Device& d,driving::P
             const auto& in=inst[h];
             if(!in.allocated||!in.visible)continue;
             ++seen;
+#if defined(OR2_ANDROID)
+            if(draw_android_abxy_badge(s,d,in.token,in.matrix,layer)){
+                ++s.pool_draws;
+                pool.drawn(h);
+                continue;
+            }
+#endif
             s.id_7551b4=in.id_2c;
             const auto root=pc_sprani_scene_root(s,in.token);
             if(!root){++s.pool_missing_roots;++s.missing_counts[0x4281ceu];continue;}

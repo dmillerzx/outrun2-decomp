@@ -11,7 +11,7 @@ Optimized for modern Android handheld gaming consoles, specifically the **Retroi
 - **Native Vulkan Graphics**: Direct 1080p (1920x1080) presentation utilizing Qualcomm Adreno 650 hardware Vulkan drivers with zero translation layer overhead.
 - **Locked 60.00 FPS Pacing**: Microsecond frame pacer with FIFO presentation, eliminating physics fast-forward and maintaining rock-solid 60 FPS.
 - **Complete OutRun2006Tweaks Suite**:
-  - Native 16:9 widescreen presentation and correct aspect ratio
+  - Auto-detected 16:9 widescreen / 4:3 aspect ratio (configurable live in **Options > Settings** and persisted to `options.ini`)
   - High-definition car and driver models (`UseHiDefCharacters`)
   - Full pedal checks calibration fix for analog triggers (`FixFullPedalChecks`)
   - Enhanced UI scaling and high-resolution reflections

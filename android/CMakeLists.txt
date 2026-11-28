@@ -94,3 +94,7 @@ target_link_libraries(main PRIVATE
     ${Z_LIB}
     m
 )
+
+target_link_options(main PRIVATE
+    -Wl,-z,max-page-size=16384
+)

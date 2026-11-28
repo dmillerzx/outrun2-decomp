@@ -29,6 +29,7 @@
 #include "enhancements/frame_rate.hpp"
 #include "enhancements/outrun2006_tweaks.hpp"
 #include "enhancements/vibration.hpp"
+#include "enhancements/video.hpp"
 #include "audio.hpp"
 #include "renderer.hpp"
 #include "vk_context.hpp"
@@ -177,6 +178,7 @@ public:
     bool set_movie_frame(const std::uint8_t* rgba, std::uint32_t w, std::uint32_t h) override { return outrun::ps5_runtime::ps5_renderer_set_movie_frame(r_, rgba, w, h); }
     bool set_pc_scene(std::function<void(outrun::platform::PcD3D9Device&)> scene) override { return outrun::ps5_runtime::ps5_renderer_set_pc_scene(r_, std::move(scene)); }
     bool draw() override {
+        host_.widescreen = outrun::ps5_runtime::g_widescreen;
         // Enforce 60.0 Hz frame pacing (16.666 ms per frame) to prevent game logic fast-forward
         using clock = std::chrono::steady_clock;
         static auto target_time = clock::now();
@@ -743,6 +745,37 @@ extern "C" int SDL_main(int argc, char* argv[]) {
             }
             LOGI("Game assets loaded successfully!");
 
+            // Options > Settings enhancement rows: 16:9 / 4:3, 3D resolution, MSAA / FXAA.
+            // Auto-detect default aspect from the device's physical screen (4:3 on Retroid Nova,
+            // 16:9 on RP5 and widescreen handhelds), while allowing manual override in-game or via options.ini.
+            const int long_edge = std::max(draw_w, draw_h);
+            const int short_edge = std::min(draw_w, draw_h);
+            const float device_aspect = (short_edge > 0) ? (float(long_edge) / float(short_edge)) : (16.0f / 9.0f);
+            const bool default_widescreen = (device_aspect >= 1.55f);
+            outrun::enhancements::VideoSettings video_start{};
+            video_start.widescreen = default_widescreen;
+            video_start.resolution = outrun::enhancements::resolution_at(1080, default_widescreen);
+            video_start.antialiasing = outrun::enhancements::Antialiasing::Off;
+            video_start.frame_rate = 60;
+            const std::string options_path = retail_root + "/options.ini";
+            if (std::FILE* opt_f = std::fopen(options_path.c_str(), "rb")) {
+                char line[512]{};
+                while (std::fgets(line, sizeof(line), opt_f)) {
+                    std::string s(line);
+                    while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) s.pop_back();
+                    if (s.empty() || s[0] == '#' || s[0] == ';') continue;
+                    const auto eq = s.find('=');
+                    if (eq == std::string::npos) continue;
+                    std::string k = s.substr(0, eq);
+                    std::string v = s.substr(eq + 1);
+                    while (!k.empty() && (k.back() == ' ' || k.back() == '\t')) k.pop_back();
+                    while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) v.erase(v.begin());
+                    (void)outrun::enhancements::GpuVideoBackend::parse_option(k, v, video_start);
+                }
+                std::fclose(opt_f);
+            }
+            outrun::enhancements::GpuVideoBackend video(options_path, video_start);
+
             outrun::ps5_runtime::Ps5Renderer renderer{};
             std::string renderer_error;
             if (!outrun::ps5_runtime::ps5_renderer_initialize(renderer, nullptr, renderer_error, &data.start_loading, nullptr, nullptr, nullptr)) {
@@ -756,8 +789,11 @@ extern "C" int SDL_main(int argc, char* argv[]) {
                 break;
             }
 
-            // Set widescreen Vulkan presentation
-            outrun::ps5_runtime::ps5_renderer_set_video(renderer, target_w, target_h, true, 1, false);
+            video.attach([&renderer](std::uint32_t w, std::uint32_t h, bool wide, unsigned msaa, bool fxaa) {
+                outrun::ps5_runtime::ps5_renderer_set_video(renderer, w, h, wide, msaa, fxaa);
+            });
+            outrun::enhancements::set_video_backend(&video);
+            diag.widescreen = video.current().widescreen;
 
             if (!rt::bind_frontend_timing(context.event_function36.frontend_sprites, data) ||
                 !outrun::ps5_runtime::ps5_renderer_attach_frontend_sprites(renderer, context.event_function36.frontend_sprites)) {
@@ -813,6 +849,7 @@ extern "C" int SDL_main(int argc, char* argv[]) {
                  rc, int(diag.render_failed), int(diag.audio_open), diag.movie_error.c_str(), diag.music_error.c_str());
 
             rt::close_frontend(diag, context, fe);
+            outrun::enhancements::set_video_backend(nullptr);
             outrun::ps5_runtime::ps5_renderer_shutdown(renderer);
             break;
         } catch (const std::exception& e) {

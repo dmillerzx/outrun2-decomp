@@ -13,6 +13,7 @@ public:
     void rgba(const void*,const std::uint8_t*,unsigned,unsigned,int,int,int,int);
     void pc_frame(const vulkan::Texture&,int,int,int,int);
     bool present(std::string& error);
+    float output_aspect()const{return (output_&&output_->height)?float(output_->width)/float(output_->height):(height_?float(width_)/float(height_):16.f/9.f);}
     vulkan::Context& context(){return *context_;}
 private:
     vulkan::Texture upload(const void*,const std::uint8_t*,unsigned,unsigned,bool);

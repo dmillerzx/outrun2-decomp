@@ -50,16 +50,37 @@ bool present_frame(RendererImpl& r){
             r.stats.loading_animation_frame=r.loading_frame++;++r.stats.loading_animation_updates;
         }else{
             const auto& pc=*r.device;
-            const auto ow=g_widescreen?FramebufferWidth:FramebufferHeight*4u/3u;
-            const auto ox=(FramebufferWidth-ow)/2u;
+            const float swap_aspect=display.output_aspect();
+            const float content_aspect=g_widescreen?(16.f/9.f):(4.f/3.f);
+            std::uint32_t ox=0,oy=0,ow=FramebufferWidth,oh=FramebufferHeight;
+            if(swap_aspect>=(16.f/9.f)-0.01f){
+                ow=g_widescreen?FramebufferWidth:FramebufferHeight*4u/3u;
+                ox=(FramebufferWidth-ow)/2u;
+            }else if(content_aspect<=swap_aspect+0.01f){
+                ow=std::min(FramebufferWidth,std::uint32_t(float(FramebufferWidth)*(content_aspect/swap_aspect)+0.5f));
+                ox=(FramebufferWidth-ow)/2u;
+            }else{
+                oh=std::min(FramebufferHeight,std::uint32_t(float(FramebufferHeight)*(swap_aspect/content_aspect)+0.5f));
+                oy=(FramebufferHeight-oh)/2u;
+            }
 #if defined(OR2_PS5_OPENGL) || defined(OR2_PS5_VULKAN)
-            display.pc_frame(pc.back_texture(),int(ox),0,int(ow),int(FramebufferHeight));
+            display.pc_frame(pc.back_texture(),int(ox),int(oy),int(ow),int(oh));
 #else
-            display.rgba(r.device.get(),pc.rgba().data(),pc.width(),pc.height(),int(ox),0,int(ow),int(FramebufferHeight));
+            display.rgba(r.device.get(),pc.rgba().data(),pc.width(),pc.height(),int(ox),int(oy),int(ow),int(oh));
 #endif
-            // The title movie stays 4:3 in a 16:9 frame.
-            constexpr auto mw=FramebufferHeight*4u/3u,mx=(FramebufferWidth-mw)/2u;
-            if(r.movie_visible&&!r.movie_rgba.empty())display.rgba(&r.movie_rgba,r.movie_rgba.data(),r.movie_width,r.movie_height,int(mx),0,int(mw),int(FramebufferHeight));
+            // The title movie stays 4:3 in a 16:9 frame, or fills a 4:3 display cleanly.
+            std::uint32_t mw=FramebufferHeight*4u/3u,mh=FramebufferHeight,mx=(FramebufferWidth-mw)/2u,my=0;
+            if(swap_aspect<(16.f/9.f)-0.01f){
+                constexpr float movie_aspect=4.f/3.f;
+                if(movie_aspect<=swap_aspect+0.01f){
+                    mw=std::min(FramebufferWidth,std::uint32_t(float(FramebufferWidth)*(movie_aspect/swap_aspect)+0.5f));
+                    mx=(FramebufferWidth-mw)/2u;
+                }else{
+                    mh=std::min(FramebufferHeight,std::uint32_t(float(FramebufferHeight)*(swap_aspect/movie_aspect)+0.5f));
+                    my=(FramebufferHeight-mh)/2u;mw=FramebufferWidth;mx=0;
+                }
+            }
+            if(r.movie_visible&&!r.movie_rgba.empty())display.rgba(&r.movie_rgba,r.movie_rgba.data(),r.movie_width,r.movie_height,int(mx),int(my),int(mw),int(mh));
             if(r.frontend_visible){
                 if(r.frontend_sprites)paint_frontend(r,display,r.stats.frames);
                 else for(const auto& d:r.frontend_frame_draws){const auto slot=frontend_texture_slot(r.frontend,d.texture);

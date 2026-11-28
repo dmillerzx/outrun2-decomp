@@ -16,6 +16,7 @@ public:
     void quad(const std::array<platform::MeshPreviewVertex,4>&,SDL_Texture*,unsigned,unsigned);
     void rgba(const void* key,const std::uint8_t* bytes,unsigned w,unsigned h,int x,int y,int width,int height);
     bool present(std::string& error);
+    float output_aspect()const{return height_?float(width_)/float(height_):16.f/9.f;}
 private:
     SDL_Texture* upload(const void* key,const std::uint8_t*,unsigned,unsigned,bool update);
     struct Image {SDL_Texture* texture{};unsigned width{},height{};};

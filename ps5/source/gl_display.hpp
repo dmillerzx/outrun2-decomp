@@ -16,6 +16,7 @@ public:
     void rgba(const void* key,const std::uint8_t* bytes,unsigned,unsigned,int,int,int,int);
     void pc_frame(unsigned texture,int x,int y,int width,int height);
     bool present(std::string& error);
+    float output_aspect()const{return actual_height_?float(actual_width_)/float(actual_height_):16.f/9.f;}
 private:
     unsigned upload(const void*,const std::uint8_t*,unsigned,unsigned,bool);
     void rectangle(unsigned,int,int,int,int);
