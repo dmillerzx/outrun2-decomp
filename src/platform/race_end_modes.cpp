@@ -458,7 +458,7 @@ void mode28_control_49af90(PcRaceContext& c){
     }else if(stage==3u){
         std::uint32_t next;
         if(call(c,0x43f860u,{})&0xffu)next=call(c,0x499890u,{})?0x24u:0x20u;
-        else next=m.u32(0x65994cu)?0x20u:0xau;
+        else next=0x20u; // Return to SUMO_FE (mode 32); mode 10 attract is not active in this port
         call(c,0x43f8c0u,{next});
         call(c,0x450230u,{0u});
         call(c,0x455730u,{});

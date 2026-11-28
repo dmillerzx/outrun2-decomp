@@ -705,6 +705,7 @@ void hook_colours(NativeRuntimeContext& c,NativeRaceAreaRuntime& o,PcSceneRender
     if(c.race_area_hooked_renderer==&r)return;
     {   // 40ED70's morph table into the renderer's 89BDB8 (read by 40ECC0)
         auto& g=r.flush_context().g;auto& anim=g.animation();const auto& st=c.event_function36;
+        anim.clock=c.frame_state.frame_counter_95af0c;
         for(std::size_t i=0;i<0x400u;++i){const auto& e=st.morph_table_89bdb8[i];anim.table[i].base=e[0];anim.table[i].count=e[1];anim.table[i].unknown=e[2];}
         g.animation_values=st.morph_values;
     }
